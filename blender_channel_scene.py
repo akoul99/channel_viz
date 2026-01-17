@@ -51,37 +51,39 @@ COLORS = {
     'transaction_write': (1.0, 0.4, 0.0, 1.0),  # Orange for writes
 }
 
-# Structure positions and sizes (x, y, z)
-# Y is vertical (height), X-Z is the ground plane
-# Taller boxes (Y=2-3) to look like 3D containers that hold balls
+# Structure positions - CASCADING layout (top to bottom for gravity flow)
+# Each tier is lower than the previous so balls naturally roll down
 STRUCTURES = {
+    # TOP TIER - Entry points
     'wcache': {
-        'pos': (0, 1.5, 4),
-        'size': (5, 3, 2),
+        'pos': (-4, 8, 0),      # High left - writes enter here
+        'size': (3, 2, 3),
         'color': 'wcache',
         'label': 'WCache',
     },
-    'write_rs': {
-        'pos': (-3.5, 1.5, 0),
-        'size': (4, 3, 2.5),
-        'color': 'write_rs',
-        'label': 'Write RS',
-    },
     'read_rs': {
-        'pos': (3.5, 1.5, 0),
-        'size': (4, 3, 2.5),
+        'pos': (4, 8, 0),       # High right - reads enter here
+        'size': (3, 2, 3),
         'color': 'read_rs',
         'label': 'Read RS',
     },
+    # MIDDLE TIER
+    'write_rs': {
+        'pos': (-4, 4, -5),     # Mid left
+        'size': (3, 2, 3),
+        'color': 'write_rs',
+        'label': 'Write RS',
+    },
+    # BOTTOM TIER
     'dram': {
-        'pos': (0, 1.5, -5),
-        'size': (8, 3, 3),
+        'pos': (0, 0, -10),     # Bottom center - everything ends here
+        'size': (6, 2, 4),
         'color': 'dram',
         'label': 'DRAM',
     },
     'read_return': {
-        'pos': (7, 1.5, -5),
-        'size': (2.5, 3, 3),
+        'pos': (6, 4, -5),      # Mid right - reads exit here
+        'size': (3, 2, 3),
         'color': 'read_return',
         'label': 'Read Return',
     },
@@ -478,8 +480,8 @@ def create_container_walls(name, pos, size):
     return walls
 
 
-def create_text_label(text, location, color, scale=0.5):
-    """Create a simple flat text label facing up."""
+def create_text_label(text, location, color, scale=0.5, camera=None):
+    """Create a text label that faces the camera."""
     bpy.ops.object.text_add(location=location)
     text_obj = bpy.context.active_object
     text_obj.name = f"Label_{text}"
@@ -488,13 +490,20 @@ def create_text_label(text, location, color, scale=0.5):
     text_obj.data.size = scale
     text_obj.data.align_x = 'CENTER'
     text_obj.data.align_y = 'CENTER'
-    text_obj.data.extrude = 0.05
+    text_obj.data.extrude = 0.03
     
-    # Simply face UP (flat on ground, readable from above)
-    text_obj.rotation_euler = (0, 0, 0)
+    # Add constraint to always face camera
+    if camera:
+        constraint = text_obj.constraints.new('TRACK_TO')
+        constraint.target = camera
+        constraint.track_axis = 'TRACK_Z'
+        constraint.up_axis = 'UP_Y'
+    else:
+        # Fallback: face forward (toward +Y, +Z)
+        text_obj.rotation_euler = (math.radians(90), 0, 0)
     
-    # Create bright emission material
-    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=12.0)
+    # Bright emission material
+    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=15.0)
     text_obj.data.materials.append(mat)
     
     return text_obj
@@ -596,77 +605,86 @@ def create_curved_tube(name, points, radius=0.6, segments=16):
     return tube_obj
 
 
-def create_half_pipe(name, start_pos, end_pos, radius=0.8, color=(0.15, 0.25, 0.35, 1.0)):
-    """Create a half-pipe (open top channel) for balls to roll through visibly."""
+def create_ramp(name, start_pos, end_pos, width=1.5, color=(0.2, 0.3, 0.4, 1.0)):
+    """Create a simple flat ramp between two points."""
     dx = end_pos[0] - start_pos[0]
     dy = end_pos[1] - start_pos[1]
     dz = end_pos[2] - start_pos[2]
     length = math.sqrt(dx*dx + dy*dy + dz*dz)
     mid = ((start_pos[0]+end_pos[0])/2, (start_pos[1]+end_pos[1])/2, (start_pos[2]+end_pos[2])/2)
     
-    # Create cylinder
-    bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=length, vertices=32, location=mid)
-    pipe = bpy.context.active_object
-    pipe.name = name
+    # Create a plane (flat ramp)
+    bpy.ops.mesh.primitive_plane_add(size=1, location=mid)
+    ramp = bpy.context.active_object
+    ramp.name = name
+    ramp.scale = (width, length, 1)
+    bpy.ops.object.transform_apply(scale=True)
     
-    # Rotate to align with direction
+    # Calculate rotation to connect start to end
+    # We need to rotate the plane so it slopes from start to end
     direction = Vector((dx, dy, dz)).normalized()
-    up = Vector((0, 0, 1))
-    if abs(direction.dot(up)) < 0.999:
-        rot_axis = up.cross(direction).normalized()
-        rot_angle = math.acos(min(1, max(-1, up.dot(direction))))
-        pipe.rotation_mode = 'AXIS_ANGLE'
-        pipe.rotation_axis_angle = (rot_angle, rot_axis.x, rot_axis.y, rot_axis.z)
     
+    # Calculate pitch (slope angle)
+    horizontal_dist = math.sqrt(dx*dx + dz*dz)
+    pitch = math.atan2(dy, horizontal_dist)
+    
+    # Calculate yaw (direction angle)
+    yaw = math.atan2(dx, -dz)
+    
+    ramp.rotation_euler = (pitch + math.radians(90), 0, yaw)
     bpy.ops.object.transform_apply(rotation=True)
     
-    # Enter edit mode to delete top half (make it a half-pipe)
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='DESELECT')
+    # Add side rails (so balls don't fall off)
+    for side in [-1, 1]:
+        bpy.ops.mesh.primitive_cube_add(size=1, location=mid)
+        rail = bpy.context.active_object
+        rail.name = f"{name}_rail_{side}"
+        rail.scale = (0.1, length, 0.3)
+        bpy.ops.object.transform_apply(scale=True)
+        
+        # Position to side
+        offset = Vector((side * width/2 * 0.9, 0, 0.15))
+        rail.location = Vector(mid) + offset
+        rail.rotation_euler = (pitch + math.radians(90), 0, yaw)
+        bpy.ops.object.transform_apply(rotation=True)
+        
+        # Rigid body for rail
+        bpy.context.view_layer.objects.active = rail
+        bpy.ops.rigidbody.object_add(type='PASSIVE')
+        rail.rigid_body.collision_shape = 'BOX'
+        rail.rigid_body.friction = 0.3
+        
+        # Same material as ramp
+        rail_mat = create_glass_material(f"mat_{name}_rail", color, emission_strength=0.5)
+        rail.data.materials.append(rail_mat)
     
-    # Select vertices with Y > 0 (top half) relative to object center
-    bpy.ops.object.mode_set(mode='OBJECT')
-    mesh = pipe.data
-    for v in mesh.vertices:
-        # Transform to check which side - we want to remove top when looking down
-        if v.co.y > 0:  # Positive local Y
-            v.select = True
-    
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.delete(type='VERT')
-    bpy.ops.object.mode_set(mode='OBJECT')
-    
-    # Rigid body
-    bpy.context.view_layer.objects.active = pipe
+    # Rigid body for ramp
+    bpy.context.view_layer.objects.active = ramp
     bpy.ops.rigidbody.object_add(type='PASSIVE')
-    pipe.rigid_body.collision_shape = 'MESH'
-    pipe.rigid_body.friction = 0.15
-    pipe.rigid_body.restitution = 0.5
+    ramp.rigid_body.collision_shape = 'BOX'
+    ramp.rigid_body.friction = 0.2
+    ramp.rigid_body.restitution = 0.3
     
     # Material
     mat = create_glass_material(f"mat_{name}", color, emission_strength=1.0)
-    pipe.data.materials.append(mat)
+    ramp.data.materials.append(mat)
     
-    return pipe
+    return ramp
 
 
 def setup_camera():
-    """Set up camera for 3D isometric view - shows depth of boxes."""
-    # Create camera - positioned to see the 3D depth
-    # Further back and higher to see the whole scene with depth
-    bpy.ops.object.camera_add(location=(18, 18, 12))
+    """Set up camera to view the cascading layout from the side."""
+    # Position camera to see the cascade from front-right
+    bpy.ops.object.camera_add(location=(15, 20, 8))
     camera = bpy.context.active_object
     camera.name = "MainCamera"
     
-    # Isometric-ish angle: ~55 degrees down, rotated 45 degrees around Z
-    # This shows the 3D nature of the boxes nicely
-    camera.rotation_euler = (math.radians(55), 0, math.radians(135))
+    # Look toward the center of the scene (around DRAM level)
+    # Point camera at (0, 4, -5)
+    camera.rotation_euler = (math.radians(60), 0, math.radians(145))
     
-    # Set as active camera
     bpy.context.scene.camera = camera
-    
-    # Camera settings - wider lens for more dramatic perspective
-    camera.data.lens = 35
+    camera.data.lens = 28  # Wider lens to see more
     camera.data.clip_end = 200
     
     return camera
@@ -1013,52 +1031,54 @@ def create_channel_scene():
         create_container_walls(f"walls_{name}", config['pos'], config['size'])
     
     # =========================================================================
-    # CREATE TUBES (half-pipes) CONNECTING THE BOXES
-    # Balls will roll through these with continuous physics!
+    # CREATE RAMPS CONNECTING THE BOXES (cascading layout)
+    # Balls roll down ramps naturally with gravity!
     # =========================================================================
-    print("Creating connecting tubes...")
+    print("Creating connecting ramps...")
     
-    # Structure positions (bottom center of each box for tube connections)
-    wcache_out = (0, 0.3, 4 - 1)           # Bottom edge of WCache
-    write_rs_in = (-3.5, 0.3, 0 + 1.25)    # Top edge of Write RS
-    write_rs_out = (-3.5, 0.3, 0 - 1.25)   # Bottom edge of Write RS
-    read_rs_in = (3.5, 0.3, 0 + 1.25)      # Top edge of Read RS
-    read_rs_out = (3.5, 0.3, 0 - 1.25)     # Bottom edge of Read RS
-    dram_in_left = (-2, 0.3, -5 + 1.5)     # Top left of DRAM
-    dram_in_right = (2, 0.3, -5 + 1.5)     # Top right of DRAM
-    dram_out = (3, 0.3, -5 - 1.5)          # Bottom right of DRAM
-    read_return_in = (7, 0.3, -5 + 1.5)    # Top of Read Return
-    read_return_out = (7, 2, -5 - 1.5)     # Bottom of Read Return (exit up)
+    # Get structure positions from config
+    wcache = STRUCTURES['wcache']['pos']
+    read_rs = STRUCTURES['read_rs']['pos']
+    write_rs = STRUCTURES['write_rs']['pos']
+    dram = STRUCTURES['dram']['pos']
+    read_return = STRUCTURES['read_return']['pos']
     
-    # Create half-pipes
-    # WCache -> Write RS
-    create_half_pipe("tube_wcache_writers", wcache_out, write_rs_in, radius=0.6, color=(0.8, 0.4, 0.1, 1.0))
+    # WCache (top left) -> Write RS (mid left)
+    # Ramp from bottom of WCache to top of Write RS
+    create_ramp("ramp_wcache_writers",
+                (wcache[0], wcache[1] - 1, wcache[2] - 1.5),  # Bottom of WCache
+                (write_rs[0], write_rs[1] + 1, write_rs[2] + 1.5),  # Top of Write RS
+                width=2.0, color=(0.9, 0.5, 0.1, 1.0))
     
-    # Write RS -> DRAM (left side)
-    create_half_pipe("tube_writers_dram", write_rs_out, dram_in_left, radius=0.6, color=(0.8, 0.4, 0.1, 1.0))
+    # Write RS (mid left) -> DRAM (bottom center)
+    create_ramp("ramp_writers_dram",
+                (write_rs[0], write_rs[1] - 1, write_rs[2] - 1.5),
+                (dram[0] - 2, dram[1] + 1, dram[2] + 2),
+                width=2.0, color=(0.9, 0.5, 0.1, 1.0))
     
-    # Read RS -> DRAM (right side)  
-    create_half_pipe("tube_readrs_dram", read_rs_out, dram_in_right, radius=0.6, color=(0.1, 0.5, 0.8, 1.0))
+    # Read RS (top right) -> DRAM (bottom center)
+    create_ramp("ramp_readrs_dram",
+                (read_rs[0], read_rs[1] - 1, read_rs[2] - 1.5),
+                (dram[0] + 2, dram[1] + 1, dram[2] + 2),
+                width=2.0, color=(0.1, 0.6, 0.9, 1.0))
     
-    # DRAM -> Read Return
-    create_half_pipe("tube_dram_readret", dram_out, read_return_in, radius=0.6, color=(0.1, 0.7, 0.7, 1.0))
+    # DRAM (bottom) -> Read Return (mid right) - for read data
+    create_ramp("ramp_dram_readret",
+                (dram[0] + 3, dram[1] + 1, dram[2]),
+                (read_return[0], read_return[1] - 1, read_return[2] + 1.5),
+                width=2.0, color=(0.1, 0.8, 0.8, 1.0))
     
-    # Add labels (simple, flat, facing up)
+    # Set up camera FIRST (so labels can track it)
+    print("Setting up camera...")
+    camera = setup_camera()
+    
+    # Add labels that face the camera
     print("Adding labels...")
     label_color = (1.0, 1.0, 0.9, 1.0)
-    labels = [
-        ("WCache", (0, 3.5, 4)),
-        ("Write RS", (-3.5, 3.5, 0)),
-        ("Read RS", (3.5, 3.5, 0)),
-        ("DRAM", (0, 3.5, -5)),
-        ("Read Return", (7, 3.5, -5)),
-    ]
-    for text, pos in labels:
-        create_text_label(text, pos, label_color, scale=0.5)
-    
-    # Set up camera
-    print("Setting up camera...")
-    setup_camera()
+    for name, config in STRUCTURES.items():
+        pos = config['pos']
+        label_pos = (pos[0], pos[1] + config['size'][1]/2 + 0.5, pos[2])
+        create_text_label(config['label'], label_pos, label_color, scale=0.6, camera=camera)
     
     # Set up lighting
     print("Setting up lighting...")
@@ -1069,42 +1089,39 @@ def create_channel_scene():
     setup_render_settings()
     
     # =========================================================================
-    # SPAWN BALLS - continuous physics, they roll through tubes!
+    # SPAWN BALLS - they drop and roll down ramps!
     # =========================================================================
     print("Spawning transaction balls...")
     random.seed(42)
     
-    # Spawn positions (above each entry point)
-    wcache_spawn = (0, 5, 5)          # Above WCache
-    read_rs_spawn = (3.5, 5, 1.5)     # Above Read RS
-    
-    # WRITE transactions: spawn above WCache, roll through system
-    for i in range(8):
-        x = wcache_spawn[0] + random.uniform(-1, 1)
-        y = wcache_spawn[1] + random.uniform(0, 2)
-        z = wcache_spawn[2] + random.uniform(-0.3, 0.3)
-        spawn_frame = 1 + i * 30  # Stagger spawns
+    # WRITE transactions: spawn above WCache
+    for i in range(6):
+        x = wcache[0] + random.uniform(-0.8, 0.8)
+        y = wcache[1] + 3 + random.uniform(0, 2)
+        z = wcache[2] + random.uniform(-0.8, 0.8)
+        spawn_frame = 1 + i * 25
         spawn_physics_ball(f"WriteTx_{i:03d}", "transaction_write", (x, y, z), spawn_frame)
     
-    # READ transactions: spawn above Read RS, roll through system
-    for i in range(8):
-        x = read_rs_spawn[0] + random.uniform(-1, 1)
-        y = read_rs_spawn[1] + random.uniform(0, 2)
-        z = read_rs_spawn[2] + random.uniform(-0.3, 0.3)
-        spawn_frame = 15 + i * 35
+    # READ transactions: spawn above Read RS
+    for i in range(6):
+        x = read_rs[0] + random.uniform(-0.8, 0.8)
+        y = read_rs[1] + 3 + random.uniform(0, 2)
+        z = read_rs[2] + random.uniform(-0.8, 0.8)
+        spawn_frame = 15 + i * 30
         spawn_physics_ball(f"ReadTx_{i:03d}", "transaction_read", (x, y, z), spawn_frame)
     
     # Animation length
-    bpy.context.scene.frame_end = 500
+    bpy.context.scene.frame_end = 400
     
     print("=" * 50)
-    print("Scene created with TUBES + CONTINUOUS PHYSICS!")
+    print("Scene created with RAMPS + PHYSICS!")
     print("")
-    print("HOW IT WORKS:")
-    print("  - Balls DROP into containers")
-    print("  - Balls ROLL through tubes to next container")
-    print("  - Balls BOUNCE off walls and each other!")
-    print("  - Pure physics - no animation switching!")
+    print("CASCADING LAYOUT:")
+    print("  TOP: WCache (writes), Read RS (reads)")
+    print("  MID: Write RS, Read Return")
+    print("  BOT: DRAM (everything ends here)")
+    print("")
+    print("Balls drop -> roll down ramps -> collect in DRAM!")
     print("")
     print("CONTROLS:")
     print("  SPACEBAR - Play animation")
