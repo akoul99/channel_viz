@@ -320,18 +320,74 @@ def create_grid_lines():
         curve.data.materials.append(mat)
 
 
+def create_sphere_material_3d(name, color, emission_strength=5.0):
+    """Create a 3D-looking sphere material with glow, specular, and depth."""
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+    
+    output = nodes.new('ShaderNodeOutputMaterial')
+    output.location = (600, 0)
+    
+    # Mix emission with glossy for that 3D bouncy ball look
+    mix_shader = nodes.new('ShaderNodeMixShader')
+    mix_shader.location = (400, 0)
+    mix_shader.inputs[0].default_value = 0.3  # 70% glossy, 30% emission
+    
+    # Glossy/reflective component for 3D depth
+    glossy = nodes.new('ShaderNodeBsdfGlossy')
+    glossy.location = (100, 100)
+    glossy.inputs['Color'].default_value = color
+    glossy.inputs['Roughness'].default_value = 0.15  # Shiny but not mirror
+    
+    # Emission for glow
+    emission = nodes.new('ShaderNodeEmission')
+    emission.location = (100, -100)
+    emission.inputs['Color'].default_value = color
+    emission.inputs['Strength'].default_value = emission_strength
+    
+    # Fresnel for edge glow effect (rim lighting)
+    fresnel = nodes.new('ShaderNodeFresnel')
+    fresnel.location = (-100, 0)
+    fresnel.inputs['IOR'].default_value = 1.45
+    
+    # Another mix for fresnel-based rim glow
+    mix_fresnel = nodes.new('ShaderNodeMixShader')
+    mix_fresnel.location = (250, 50)
+    
+    # Bright rim emission
+    rim_emission = nodes.new('ShaderNodeEmission')
+    rim_emission.location = (100, -200)
+    rim_emission.inputs['Color'].default_value = (1.0, 1.0, 1.0, 1.0)  # White rim
+    rim_emission.inputs['Strength'].default_value = 3.0
+    
+    # Connect: glossy + rim -> then mix with core emission
+    links.new(fresnel.outputs['Fac'], mix_fresnel.inputs[0])
+    links.new(glossy.outputs['BSDF'], mix_fresnel.inputs[1])
+    links.new(rim_emission.outputs['Emission'], mix_fresnel.inputs[2])
+    
+    links.new(mix_fresnel.outputs['Shader'], mix_shader.inputs[1])
+    links.new(emission.outputs['Emission'], mix_shader.inputs[2])
+    links.new(mix_shader.outputs['Shader'], output.inputs['Surface'])
+    
+    return mat
+
+
 def create_transaction_sphere(name, color_name, location=(0, 1.5, 5)):
-    """Create a glowing transaction sphere."""
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.3, location=location)
+    """Create a glowing 3D transaction sphere with depth."""
+    # Higher subdivision for smoother sphere
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.35, segments=32, ring_count=24, location=location)
     sphere = bpy.context.active_object
     sphere.name = name
     
     # Smooth shading
     bpy.ops.object.shade_smooth()
     
-    # Create emission material
+    # Create 3D material with specular and glow
     color = COLORS.get(color_name, COLORS['transaction_read'])
-    mat = create_emission_material(f"mat_{name}", color, emission_strength=10.0)
+    mat = create_sphere_material_3d(f"mat_{name}", color, emission_strength=6.0)
     sphere.data.materials.append(mat)
     
     return sphere
@@ -473,34 +529,77 @@ def setup_render_settings():
 
 def animate_transaction(sphere, waypoints, start_frame=1, wait_times=None):
     """
-    Animate a transaction sphere along waypoints with optional wait times.
+    Animate a transaction sphere along waypoints with bouncy physics.
     
     waypoints: list of (x, y, z) tuples
     wait_times: list of frame counts to wait at each waypoint (None = no wait)
+    
+    Includes:
+    - Bounce/overshoot when arriving at each waypoint
+    - Squash and stretch effect for physics feel
     """
-    frames_per_move = 15  # Frames to move between waypoints
+    frames_per_move = 18  # Frames to move between waypoints
+    bounce_frames = 8     # Frames for the bounce settle
     
     if wait_times is None:
         wait_times = [0] * len(waypoints)
     
     current_frame = start_frame
+    base_scale = (1.0, 1.0, 1.0)
     
     for i, pos in enumerate(waypoints):
-        # Set position at arrival
-        sphere.location = pos
-        sphere.keyframe_insert(data_path="location", frame=current_frame)
+        is_first = (i == 0)
+        is_last = (i == len(waypoints) - 1)
         
-        # If there's a wait time, add another keyframe after waiting
+        if not is_first:
+            # --- ARRIVING: Squash effect (compressed on Y) ---
+            # Slight overshoot position (bounce past target then back)
+            overshoot_y = pos[1] - 0.15  # Dip below target
+            sphere.location = (pos[0], overshoot_y, pos[2])
+            sphere.scale = (1.15, 0.7, 1.15)  # Squashed
+            sphere.keyframe_insert(data_path="location", frame=current_frame)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+            
+            # --- BOUNCE BACK: Stretch then settle ---
+            current_frame += int(bounce_frames * 0.4)
+            sphere.location = (pos[0], pos[1] + 0.1, pos[2])  # Overshoot up
+            sphere.scale = (0.85, 1.25, 0.85)  # Stretched
+            sphere.keyframe_insert(data_path="location", frame=current_frame)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+            
+            # --- SETTLE: Back to normal ---
+            current_frame += int(bounce_frames * 0.6)
+            sphere.location = pos
+            sphere.scale = base_scale
+            sphere.keyframe_insert(data_path="location", frame=current_frame)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+        else:
+            # First waypoint - just set position
+            sphere.location = pos
+            sphere.scale = base_scale
+            sphere.keyframe_insert(data_path="location", frame=current_frame)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+        
+        # If there's a wait time, hold position
         wait = wait_times[i] if i < len(wait_times) else 0
         if wait > 0:
             current_frame += wait
             sphere.location = pos
+            sphere.scale = base_scale
             sphere.keyframe_insert(data_path="location", frame=current_frame)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+        
+        if not is_last:
+            # --- LEAVING: Anticipation stretch ---
+            current_frame += 3
+            # Stretch in direction of movement
+            sphere.scale = (0.9, 1.1, 0.9)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
         
         # Move to next segment
         current_frame += frames_per_move
     
-    # Set interpolation to smooth (compatible with multiple Blender versions)
+    # Set interpolation to smooth bezier
     try:
         if sphere.animation_data and sphere.animation_data.action:
             fcurves = sphere.animation_data.action.fcurves
