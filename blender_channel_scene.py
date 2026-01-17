@@ -97,8 +97,10 @@ def create_material(name, color, emission=2.0, transparent=False):
     mat.use_nodes = True
     
     if transparent:
-        mat.blend_method = 'BLEND'
-        mat.shadow_method = 'NONE'
+        try:
+            mat.blend_method = 'BLEND'
+        except:
+            pass
     
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
