@@ -84,9 +84,9 @@ STRUCTURES = {
 # PHYSICS CONFIGURATION
 # Toggle this to easily disable physics and revert to pure keyframes
 # ============================================================================
-USE_PHYSICS = False  # Disabled - hybrid physics was buggy
-FRAMES_IN_UNIT = 80   # Longer time in units for physics to settle
-FRAMES_TRAVEL = 15    # Fast travel between units
+USE_PHYSICS = True   # Enable hybrid physics
+FRAMES_IN_UNIT = 60  # Time in units for physics to settle
+FRAMES_TRAVEL = 20   # Travel time between units (keyframed)
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -168,80 +168,82 @@ def create_box(name, pos, size, color_name):
     fill_mat = create_material(f"mat_{name}_fill", color, emission=1.0, transparent=True)
     fill_box.data.materials.append(fill_mat)
     
-    # Create invisible collision walls (floor + 4 sides) inside the box
-    # The fill_box is visual only - we need actual planes for physics
+    # Create THICK collision boxes for floor and walls (invisible but solid)
+    # Using cubes instead of planes for reliable collision
     if USE_PHYSICS:
         try:
-            # Floor plane (bottom of box)
-            floor_z = pz - hz + 0.1  # Slightly above bottom edge
-            bpy.ops.mesh.primitive_plane_add(size=1, location=(px, py, floor_z))
+            wall_thickness = 0.3  # Thick enough to prevent tunneling
+            
+            # Floor (thick box at bottom)
+            floor_z = pz - hz - wall_thickness/2 + 0.05
+            bpy.ops.mesh.primitive_cube_add(size=1, location=(px, py, floor_z))
             floor = bpy.context.active_object
             floor.name = f"{name}_floor"
-            floor.scale = (sx * 0.9, sy * 0.9, 1)
+            floor.scale = (sx + wall_thickness, sy + wall_thickness, wall_thickness)
             bpy.ops.object.transform_apply(scale=True)
-            # Make invisible
             floor.hide_render = True
-            floor.display_type = 'WIRE'
+            floor.display_type = 'BOUNDS'
             bpy.ops.rigidbody.object_add(type='PASSIVE')
             floor.rigid_body.collision_shape = 'BOX'
-            floor.rigid_body.friction = 0.8
-            floor.rigid_body.restitution = 0.3
+            floor.rigid_body.friction = 0.9
+            floor.rigid_body.restitution = 0.2
+            floor.rigid_body.collision_margin = 0.0
             
             # Left wall
-            bpy.ops.mesh.primitive_plane_add(size=1, location=(px - hx + 0.1, py, pz))
+            bpy.ops.mesh.primitive_cube_add(size=1, location=(px - hx - wall_thickness/2, py, pz))
             wall = bpy.context.active_object
             wall.name = f"{name}_wall_left"
-            wall.rotation_euler = (0, math.radians(90), 0)
-            wall.scale = (sz * 0.9, sy * 0.9, 1)
-            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.scale = (wall_thickness, sy + wall_thickness, sz + wall_thickness)
+            bpy.ops.object.transform_apply(scale=True)
             wall.hide_render = True
-            wall.display_type = 'WIRE'
+            wall.display_type = 'BOUNDS'
             bpy.ops.rigidbody.object_add(type='PASSIVE')
             wall.rigid_body.collision_shape = 'BOX'
             wall.rigid_body.friction = 0.5
-            wall.rigid_body.restitution = 0.4
+            wall.rigid_body.restitution = 0.3
+            wall.rigid_body.collision_margin = 0.0
             
             # Right wall
-            bpy.ops.mesh.primitive_plane_add(size=1, location=(px + hx - 0.1, py, pz))
+            bpy.ops.mesh.primitive_cube_add(size=1, location=(px + hx + wall_thickness/2, py, pz))
             wall = bpy.context.active_object
             wall.name = f"{name}_wall_right"
-            wall.rotation_euler = (0, math.radians(90), 0)
-            wall.scale = (sz * 0.9, sy * 0.9, 1)
-            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.scale = (wall_thickness, sy + wall_thickness, sz + wall_thickness)
+            bpy.ops.object.transform_apply(scale=True)
             wall.hide_render = True
-            wall.display_type = 'WIRE'
+            wall.display_type = 'BOUNDS'
             bpy.ops.rigidbody.object_add(type='PASSIVE')
             wall.rigid_body.collision_shape = 'BOX'
             wall.rigid_body.friction = 0.5
-            wall.rigid_body.restitution = 0.4
+            wall.rigid_body.restitution = 0.3
+            wall.rigid_body.collision_margin = 0.0
             
-            # Front wall (towards camera)
-            bpy.ops.mesh.primitive_plane_add(size=1, location=(px, py - hy + 0.1, pz))
+            # Front wall (towards camera - at lower Y)
+            bpy.ops.mesh.primitive_cube_add(size=1, location=(px, py - hy - wall_thickness/2, pz))
             wall = bpy.context.active_object
             wall.name = f"{name}_wall_front"
-            wall.rotation_euler = (math.radians(90), 0, 0)
-            wall.scale = (sx * 0.9, sz * 0.9, 1)
-            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.scale = (sx + wall_thickness, wall_thickness, sz + wall_thickness)
+            bpy.ops.object.transform_apply(scale=True)
             wall.hide_render = True
-            wall.display_type = 'WIRE'
+            wall.display_type = 'BOUNDS'
             bpy.ops.rigidbody.object_add(type='PASSIVE')
             wall.rigid_body.collision_shape = 'BOX'
             wall.rigid_body.friction = 0.5
-            wall.rigid_body.restitution = 0.4
+            wall.rigid_body.restitution = 0.3
+            wall.rigid_body.collision_margin = 0.0
             
-            # Back wall
-            bpy.ops.mesh.primitive_plane_add(size=1, location=(px, py + hy - 0.1, pz))
+            # Back wall (away from camera - at higher Y)
+            bpy.ops.mesh.primitive_cube_add(size=1, location=(px, py + hy + wall_thickness/2, pz))
             wall = bpy.context.active_object
             wall.name = f"{name}_wall_back"
-            wall.rotation_euler = (math.radians(90), 0, 0)
-            wall.scale = (sx * 0.9, sz * 0.9, 1)
-            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.scale = (sx + wall_thickness, wall_thickness, sz + wall_thickness)
+            bpy.ops.object.transform_apply(scale=True)
             wall.hide_render = True
-            wall.display_type = 'WIRE'
+            wall.display_type = 'BOUNDS'
             bpy.ops.rigidbody.object_add(type='PASSIVE')
             wall.rigid_body.collision_shape = 'BOX'
             wall.rigid_body.friction = 0.5
-            wall.rigid_body.restitution = 0.4
+            wall.rigid_body.restitution = 0.3
+            wall.rigid_body.collision_margin = 0.0
             
         except Exception as e:
             print(f"Physics setup failed for {name}: {e}")
@@ -346,63 +348,71 @@ def create_ball(name, color_name, pos):
 
 def animate_ball_hybrid(ball, waypoints, start_frame):
     """
-    Hybrid animation: keyframes for ALL movement, physics only inside units.
+    Hybrid animation based on Blender best practices:
+    - Keyframes ONLY for travel between units (kinematic=True)
+    - Physics ONLY inside units (kinematic=False, NO location keyframes)
     
     waypoints: list of (position, is_unit) tuples
-               is_unit=True means enable physics briefly for bouncing
+               is_unit=True means physics takes over here
     """
     frame = start_frame
     
-    # First pass: set ALL location keyframes for the complete path
-    # This ensures the ball always has a defined position
-    keyframe_times = []
+    # Ensure ball starts kinematic at frame 1
+    if ball.rigid_body:
+        ball.rigid_body.kinematic = True
+        ball.keyframe_insert(data_path="rigid_body.kinematic", frame=1)
     
     for i, (pos, is_unit) in enumerate(waypoints):
-        keyframe_times.append((frame, pos, is_unit))
         
         if is_unit:
-            frame += FRAMES_IN_UNIT  # Long pause in unit
-        else:
-            frame += FRAMES_TRAVEL   # Quick travel
-    
-    # Set all location keyframes first (ball always knows where to be)
-    for f, pos, _ in keyframe_times:
-        ball.location = pos
-        ball.keyframe_insert(data_path="location", frame=f)
-    
-    # Second pass: set kinematic keyframes (when to enable physics)
-    if USE_PHYSICS and ball.rigid_body:
-        for i, (f, pos, is_unit) in enumerate(keyframe_times):
-            if is_unit:
-                # Arrive at unit - kinematic ON (follow keyframe to exact position)
+            # === ENTERING A UNIT ===
+            # 1. Set position keyframe at arrival (still kinematic)
+            ball.location = pos
+            ball.keyframe_insert(data_path="location", frame=frame)
+            
+            if ball.rigid_body:
+                # 2. Stay kinematic at arrival frame
                 ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=f)
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
                 
-                # After settling in position, enable physics for 30 frames
-                physics_start = f + 5
+                # 3. Switch to physics 2 frames later (smooth handoff)
                 ball.rigid_body.kinematic = False
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=physics_start)
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame + 2)
                 
-                # Before leaving, disable physics so keyframes take over again
-                physics_end = f + FRAMES_IN_UNIT - 10
+                # 4. Physics runs for FRAMES_IN_UNIT - NO location keyframes during this!
+                # The ball is free to bounce/settle
+                
+                # 5. Before next waypoint, switch back to kinematic
+                exit_frame = frame + FRAMES_IN_UNIT
                 ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=physics_end)
-            else:
-                # Traveling - always kinematic (pure keyframe)
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=exit_frame - 2)
+            
+            frame += FRAMES_IN_UNIT
+            
+        else:
+            # === TRAVELING BETWEEN UNITS ===
+            # Pure keyframe motion - kinematic stays True
+            ball.location = pos
+            ball.keyframe_insert(data_path="location", frame=frame)
+            
+            if ball.rigid_body:
                 ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=f)
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
+            
+            frame += FRAMES_TRAVEL
     
-    # Smooth interpolation for location, constant for kinematic switches
+    # Set interpolation modes
     try:
         if ball.animation_data and ball.animation_data.action:
             fcurves = getattr(ball.animation_data.action, 'fcurves', None)
             if fcurves:
                 for fc in fcurves:
-                    if 'location' in fc.data_path:
-                        for kf in fc.keyframe_points:
-                            kf.interpolation = 'BEZIER'
-                    elif 'kinematic' in fc.data_path:
-                        for kf in fc.keyframe_points:
+                    for kf in fc.keyframe_points:
+                        if 'location' in fc.data_path:
+                            # LINEAR for locations (smoother handoff to physics)
+                            kf.interpolation = 'LINEAR'
+                        elif 'kinematic' in fc.data_path:
+                            # CONSTANT for boolean switches
                             kf.interpolation = 'CONSTANT'
     except:
         pass
@@ -508,60 +518,68 @@ def create_scene():
     # Create animated transactions
     print("Creating transactions...")
     
-    # Unit center positions (balls drop slightly into top of box)
-    wcache_center = (0, 0.5, 6)
-    write_rs_center = (-4, 0.5, 2)
-    read_rs_center = (4, 0.5, 2)
-    dram_center = (0, 0.5, -3)
-    read_return_center = (8, 0.5, -3)
+    # Unit positions - balls arrive at TOP of unit (higher Z), then fall when physics kicks in
+    # Structure sizes from STRUCTURES dict: (X, Y, Z) where Z is height
+    # Arrival Z = center_z + half_height - small offset
     
-    def get_slot_offset(slot_index, max_slots=4):
-        """Get X,Z offset for ball slot - spread balls out in units."""
-        offsets = [(-0.7, 0.3), (-0.2, 0.3), (0.3, 0.3), (0.8, 0.3),
-                   (-0.7, -0.3), (-0.2, -0.3), (0.3, -0.3), (0.8, -0.3)]
+    def get_unit_top(unit_name):
+        """Get position at top of unit for ball arrival."""
+        cfg = STRUCTURES[unit_name]
+        cx, cy, cz = cfg['pos']
+        half_h = cfg['size'][2] / 2
+        return (cx, cy, cz + half_h - 0.3)  # Slightly below top edge
+    
+    wcache_top = get_unit_top('wcache')
+    write_rs_top = get_unit_top('write_rs')
+    read_rs_top = get_unit_top('read_rs')
+    dram_top = get_unit_top('dram')
+    read_return_top = get_unit_top('read_return')
+    
+    def get_slot_offset(slot_index):
+        """Get X offset for ball slot - spread balls horizontally."""
+        offsets = [-0.8, -0.3, 0.2, 0.7, -0.5, 0.0, 0.5, 1.0]
         return offsets[slot_index % len(offsets)]
     
     # WRITE transactions (6 balls)
     # Path: Enter -> WCache -> Write RS -> DRAM
-    # Waypoints: (position, is_unit) - is_unit=True means physics happens here
     num_writes = 6
     for i in range(num_writes):
-        x_off, z_off = get_slot_offset(i)
+        x_off = get_slot_offset(i)
         
         if USE_PHYSICS:
             waypoints = [
-                ((0 + x_off, 0.5, 12), False),                                     # Enter
-                ((wcache_center[0] + x_off, 0.5, wcache_center[2] + z_off), True), # WCache - physics
-                ((write_rs_center[0] + x_off, 0.5, write_rs_center[2] + z_off), True), # Write RS - physics
-                ((dram_center[0] - 1.5 + x_off, 0.5, dram_center[2] + z_off), True),  # DRAM - physics
+                ((0 + x_off, 0.5, 12), False),  # Enter from top
+                ((wcache_top[0] + x_off, wcache_top[1], wcache_top[2]), True),  # WCache
+                ((write_rs_top[0] + x_off, write_rs_top[1], write_rs_top[2]), True),  # Write RS
+                ((dram_top[0] - 1.5 + x_off, dram_top[1], dram_top[2]), True),  # DRAM
             ]
             ball = create_ball(f"write_{i}", "write_ball", waypoints[0][0])
-            start = 1 + i * 40  # More stagger for physics to work
+            start = 1 + i * 50  # Stagger starts
             animate_ball_hybrid(ball, waypoints, start_frame=start)
         else:
             waypoints = [
                 (0 + x_off, 0.5, 12),
-                (wcache_center[0] + x_off, 0.5, wcache_center[2]),
-                (write_rs_center[0] + x_off, 0.5, write_rs_center[2]),
-                (dram_center[0] - 1.5 + x_off, 0.5, dram_center[2]),
+                (STRUCTURES['wcache']['pos'][0] + x_off, 0.5, STRUCTURES['wcache']['pos'][2]),
+                (STRUCTURES['write_rs']['pos'][0] + x_off, 0.5, STRUCTURES['write_rs']['pos'][2]),
+                (STRUCTURES['dram']['pos'][0] - 1.5 + x_off, 0.5, STRUCTURES['dram']['pos'][2]),
             ]
             ball = create_ball(f"write_{i}", "write_ball", waypoints[0])
             start = 1 + i * 25
             animate_ball(ball, waypoints, start_frame=start, frames_per_stop=40)
     
     # READ transactions (6 balls)
-    # Path: Enter -> Read RS -> DRAM -> Read Return -> Exit
+    # Path: Enter -> Read RS -> DRAM -> Read Return -> Exit (upwards)
     num_reads = 6
     for i in range(num_reads):
-        x_off, z_off = get_slot_offset(i)
+        x_off = get_slot_offset(i)
         
         if USE_PHYSICS:
             waypoints = [
-                ((4 + x_off, 0.5, 12), False),                                     # Enter
-                ((read_rs_center[0] + x_off, 0.5, read_rs_center[2] + z_off), True),  # Read RS - physics
-                ((dram_center[0] + 1.5 + x_off, 0.5, dram_center[2] + z_off), True),  # DRAM - physics
-                ((read_return_center[0] + x_off, 0.5, read_return_center[2] + z_off), True), # Read Return - physics
-                ((read_return_center[0] + x_off, 0.5, 12), False),                 # Exit
+                ((4 + x_off, 0.5, 12), False),  # Enter from top
+                ((read_rs_top[0] + x_off, read_rs_top[1], read_rs_top[2]), True),  # Read RS
+                ((dram_top[0] + 1.5 + x_off, dram_top[1], dram_top[2]), True),  # DRAM
+                ((read_return_top[0] + x_off, read_return_top[1], read_return_top[2]), True),  # Read Return
+                ((read_return_top[0] + x_off, 0.5, 12), False),  # Exit upwards
             ]
             ball = create_ball(f"read_{i}", "read_ball", waypoints[0][0])
             start = 10 + i * 50
@@ -569,10 +587,10 @@ def create_scene():
         else:
             waypoints = [
                 (4 + x_off, 0.5, 12),
-                (read_rs_center[0] + x_off, 0.5, read_rs_center[2]),
-                (dram_center[0] + 1.5 + x_off, 0.5, dram_center[2]),
-                (read_return_center[0] + x_off, 0.5, read_return_center[2]),
-                (read_return_center[0] + x_off, 0.5, 12),
+                (STRUCTURES['read_rs']['pos'][0] + x_off, 0.5, STRUCTURES['read_rs']['pos'][2]),
+                (STRUCTURES['dram']['pos'][0] + 1.5 + x_off, 0.5, STRUCTURES['dram']['pos'][2]),
+                (STRUCTURES['read_return']['pos'][0] + x_off, 0.5, STRUCTURES['read_return']['pos'][2]),
+                (STRUCTURES['read_return']['pos'][0] + x_off, 0.5, 12),
             ]
             ball = create_ball(f"read_{i}", "read_ball", waypoints[0])
             start = 10 + i * 30
