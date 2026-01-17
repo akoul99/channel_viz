@@ -132,19 +132,69 @@ def create_material(name, color, emission=2.0, transparent=False):
 
 
 def create_box(name, pos, size, color_name):
-    """Create a transparent box (can see balls inside)."""
-    bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
-    obj = bpy.context.active_object
-    obj.name = name
-    obj.scale = size
-    bpy.ops.object.transform_apply(scale=True)
-    
+    """Create a glowing wireframe container - edges only, no faces."""
     color = COLORS[color_name]
-    # Transparent so we can see balls inside
-    mat = create_material(f"mat_{name}", color, emission=2.0, transparent=True)
-    obj.data.materials.append(mat)
     
-    return obj
+    # Create 12 edge beams for the cube wireframe
+    sx, sy, sz = size
+    px, py, pz = pos
+    
+    # Half sizes for corner positions
+    hx, hy, hz = sx/2, sy/2, sz/2
+    
+    # Define the 8 corners
+    corners = [
+        (px-hx, py-hy, pz-hz), (px+hx, py-hy, pz-hz),
+        (px+hx, py-hy, pz+hz), (px-hx, py-hy, pz+hz),
+        (px-hx, py+hy, pz-hz), (px+hx, py+hy, pz-hz),
+        (px+hx, py+hy, pz+hz), (px-hx, py+hy, pz+hz),
+    ]
+    
+    # Define 12 edges (pairs of corner indices)
+    edges = [
+        (0,1), (1,2), (2,3), (3,0),  # Bottom
+        (4,5), (5,6), (6,7), (7,4),  # Top
+        (0,4), (1,5), (2,6), (3,7),  # Verticals
+    ]
+    
+    # Create thin cylinders for each edge
+    mat = create_material(f"mat_{name}", color, emission=5.0)
+    
+    for i, (a, b) in enumerate(edges):
+        p1, p2 = corners[a], corners[b]
+        
+        # Midpoint and length
+        mid = ((p1[0]+p2[0])/2, (p1[1]+p2[1])/2, (p1[2]+p2[2])/2)
+        dx, dy, dz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
+        length = (dx**2 + dy**2 + dz**2) ** 0.5
+        
+        # Create cylinder
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.05, depth=length, location=mid)
+        edge_obj = bpy.context.active_object
+        edge_obj.name = f"{name}_edge_{i}"
+        
+        # Rotate to align with edge direction
+        from mathutils import Vector
+        direction = Vector((dx, dy, dz)).normalized()
+        up = Vector((0, 0, 1))
+        if abs(direction.dot(up)) < 0.999:
+            rot_axis = up.cross(direction).normalized()
+            rot_angle = math.acos(direction.dot(up))
+            edge_obj.rotation_mode = 'AXIS_ANGLE'
+            edge_obj.rotation_axis_angle = (rot_angle, rot_axis.x, rot_axis.y, rot_axis.z)
+        elif direction.z < 0:
+            edge_obj.rotation_euler = (math.radians(180), 0, 0)
+        
+        edge_obj.data.materials.append(mat)
+    
+    # Add corner spheres for a nicer look
+    for i, corner in enumerate(corners):
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.08, location=corner)
+        sphere = bpy.context.active_object
+        sphere.name = f"{name}_corner_{i}"
+        sphere.data.materials.append(mat)
+    
+    return None
 
 
 def create_label(text, pos):
