@@ -334,8 +334,8 @@ def create_text_label(text, location, color, scale=0.4):
     # Rotate to face camera (flat on XZ plane, facing up)
     text_obj.rotation_euler = (math.radians(90), 0, 0)
     
-    # Create emission material for the text
-    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=3.0)
+    # Create emission material for the text (bright glow for visibility)
+    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=8.0)
     text_obj.data.materials.append(mat)
     
     return text_obj
@@ -498,10 +498,10 @@ def create_channel_scene():
     print("Setting up world...")
     setup_world()
     
-    # Create floor and grid
-    print("Creating floor and grid...")
-    create_floor()
-    create_grid_lines()
+    # Skip floor (it creates visual clutter from this camera angle)
+    # print("Creating floor and grid...")
+    # create_floor()
+    # create_grid_lines()
     
     # Create structures
     print("Creating structures...")
@@ -516,16 +516,18 @@ def create_channel_scene():
     
     # Add labels for each structure
     print("Adding labels...")
-    label_height = 1.3  # Height above structures
+    label_height = 1.8  # Height above structures
+    # Use bright white/yellow for high contrast labels
+    label_color = (1.0, 1.0, 0.9, 1.0)  # Bright warm white
     labels = [
-        ("WCache", (0, label_height, 3), COLORS['wcache']),
-        ("Write RS", (-2.5, label_height, 0), COLORS['write_rs']),
-        ("Read RS", (2.5, label_height, 0), COLORS['read_rs']),
-        ("DRAM", (0, label_height, -4), COLORS['dram']),
-        ("Read Return", (6, label_height, -4), COLORS['read_return']),
+        ("WCache", (0, label_height, 3)),
+        ("Write RS", (-2.5, label_height, 0)),
+        ("Read RS", (2.5, label_height, 0)),
+        ("DRAM", (0, label_height, -4)),
+        ("Read Return", (6, label_height, -4)),
     ]
-    for text, pos, color in labels:
-        create_text_label(text, pos, color, scale=0.5)
+    for text, pos in labels:
+        create_text_label(text, pos, label_color, scale=0.7)
     
     # Set up camera
     print("Setting up camera...")
