@@ -124,15 +124,17 @@ def create_box(name, pos, size, color_name):
 
 
 def create_label(text, pos):
-    """Create a text label."""
+    """Create a text label visible from top-down camera."""
     bpy.ops.object.text_add(location=pos)
     obj = bpy.context.active_object
     obj.data.body = text
-    obj.data.size = 0.6
+    obj.data.size = 0.5
     obj.data.align_x = 'CENTER'
-    obj.rotation_euler = (math.radians(90), 0, 0)  # Face up
+    obj.data.align_y = 'CENTER'
+    # Rotate to lie flat on XZ plane, readable from above (camera at +Y)
+    obj.rotation_euler = (math.radians(-90), 0, 0)
     
-    mat = create_material(f"mat_label_{text}", (1, 1, 0.9, 1), emission=8.0)
+    mat = create_material(f"mat_label_{text}", (1, 1, 0.9, 1), emission=10.0)
     obj.data.materials.append(mat)
     
     return obj
@@ -212,8 +214,8 @@ def create_scene():
     print("Creating structures...")
     for name, cfg in STRUCTURES.items():
         create_box(name, cfg['pos'], cfg['size'], cfg['color'])
-        # Label above box
-        label_pos = (cfg['pos'][0], cfg['pos'][1] + 1, cfg['pos'][2])
+        # Label ON TOP of box (higher Y so visible from top-down camera)
+        label_pos = (cfg['pos'][0], cfg['pos'][1] + 0.6, cfg['pos'][2])
         create_label(cfg['label'], label_pos)
     
     # Create animated transactions
