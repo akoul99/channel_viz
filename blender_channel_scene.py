@@ -168,15 +168,83 @@ def create_box(name, pos, size, color_name):
     fill_mat = create_material(f"mat_{name}_fill", color, emission=1.0, transparent=True)
     fill_box.data.materials.append(fill_mat)
     
-    # Add rigid body for collision (passive = balls bounce off it)
+    # Create invisible collision walls (floor + 4 sides) inside the box
+    # The fill_box is visual only - we need actual planes for physics
     if USE_PHYSICS:
         try:
+            # Floor plane (bottom of box)
+            floor_z = pz - hz + 0.1  # Slightly above bottom edge
+            bpy.ops.mesh.primitive_plane_add(size=1, location=(px, py, floor_z))
+            floor = bpy.context.active_object
+            floor.name = f"{name}_floor"
+            floor.scale = (sx * 0.9, sy * 0.9, 1)
+            bpy.ops.object.transform_apply(scale=True)
+            # Make invisible
+            floor.hide_render = True
+            floor.display_type = 'WIRE'
             bpy.ops.rigidbody.object_add(type='PASSIVE')
-            fill_box.rigid_body.collision_shape = 'BOX'
-            fill_box.rigid_body.friction = 0.5
-            fill_box.rigid_body.restitution = 0.3  # Some bounce
-        except:
-            pass  # Skip if physics not available
+            floor.rigid_body.collision_shape = 'BOX'
+            floor.rigid_body.friction = 0.8
+            floor.rigid_body.restitution = 0.3
+            
+            # Left wall
+            bpy.ops.mesh.primitive_plane_add(size=1, location=(px - hx + 0.1, py, pz))
+            wall = bpy.context.active_object
+            wall.name = f"{name}_wall_left"
+            wall.rotation_euler = (0, math.radians(90), 0)
+            wall.scale = (sz * 0.9, sy * 0.9, 1)
+            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.hide_render = True
+            wall.display_type = 'WIRE'
+            bpy.ops.rigidbody.object_add(type='PASSIVE')
+            wall.rigid_body.collision_shape = 'BOX'
+            wall.rigid_body.friction = 0.5
+            wall.rigid_body.restitution = 0.4
+            
+            # Right wall
+            bpy.ops.mesh.primitive_plane_add(size=1, location=(px + hx - 0.1, py, pz))
+            wall = bpy.context.active_object
+            wall.name = f"{name}_wall_right"
+            wall.rotation_euler = (0, math.radians(90), 0)
+            wall.scale = (sz * 0.9, sy * 0.9, 1)
+            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.hide_render = True
+            wall.display_type = 'WIRE'
+            bpy.ops.rigidbody.object_add(type='PASSIVE')
+            wall.rigid_body.collision_shape = 'BOX'
+            wall.rigid_body.friction = 0.5
+            wall.rigid_body.restitution = 0.4
+            
+            # Front wall (towards camera)
+            bpy.ops.mesh.primitive_plane_add(size=1, location=(px, py - hy + 0.1, pz))
+            wall = bpy.context.active_object
+            wall.name = f"{name}_wall_front"
+            wall.rotation_euler = (math.radians(90), 0, 0)
+            wall.scale = (sx * 0.9, sz * 0.9, 1)
+            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.hide_render = True
+            wall.display_type = 'WIRE'
+            bpy.ops.rigidbody.object_add(type='PASSIVE')
+            wall.rigid_body.collision_shape = 'BOX'
+            wall.rigid_body.friction = 0.5
+            wall.rigid_body.restitution = 0.4
+            
+            # Back wall
+            bpy.ops.mesh.primitive_plane_add(size=1, location=(px, py + hy - 0.1, pz))
+            wall = bpy.context.active_object
+            wall.name = f"{name}_wall_back"
+            wall.rotation_euler = (math.radians(90), 0, 0)
+            wall.scale = (sx * 0.9, sz * 0.9, 1)
+            bpy.ops.object.transform_apply(rotation=True, scale=True)
+            wall.hide_render = True
+            wall.display_type = 'WIRE'
+            bpy.ops.rigidbody.object_add(type='PASSIVE')
+            wall.rigid_body.collision_shape = 'BOX'
+            wall.rigid_body.friction = 0.5
+            wall.rigid_body.restitution = 0.4
+            
+        except Exception as e:
+            print(f"Physics setup failed for {name}: {e}")
     
     # 2. Create glowing wireframe edges
     corners = [
