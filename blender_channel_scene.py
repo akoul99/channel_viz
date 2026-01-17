@@ -479,28 +479,175 @@ def create_container_walls(name, pos, size):
 
 
 def create_text_label(text, location, color, scale=0.5):
-    """Create a 3D text label lying flat on XZ plane, readable from above."""
-    # Create text object
+    """Create a simple flat text label facing up."""
     bpy.ops.object.text_add(location=location)
     text_obj = bpy.context.active_object
     text_obj.name = f"Label_{text}"
     text_obj.data.body = text
     
-    # Set text properties
     text_obj.data.size = scale
     text_obj.data.align_x = 'CENTER'
     text_obj.data.align_y = 'CENTER'
-    text_obj.data.extrude = 0.08  # Some depth
+    text_obj.data.extrude = 0.05
     
-    # Lay flat on XZ plane, rotated so it reads correctly from the isometric camera
-    # Camera is looking from +X+Y toward -X-Y, so rotate text to face that direction
-    text_obj.rotation_euler = (math.radians(90), 0, math.radians(-135))
+    # Simply face UP (flat on ground, readable from above)
+    text_obj.rotation_euler = (0, 0, 0)
     
     # Create bright emission material
-    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=15.0)
+    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=12.0)
     text_obj.data.materials.append(mat)
     
     return text_obj
+
+
+def create_tube(name, start_pos, end_pos, radius=0.5, color=(0.3, 0.3, 0.4, 1.0)):
+    """Create a tube (cylinder) between two points for balls to roll through."""
+    # Calculate tube properties
+    dx = end_pos[0] - start_pos[0]
+    dy = end_pos[1] - start_pos[1]
+    dz = end_pos[2] - start_pos[2]
+    length = math.sqrt(dx*dx + dy*dy + dz*dz)
+    
+    # Midpoint
+    mid = ((start_pos[0] + end_pos[0])/2, (start_pos[1] + end_pos[1])/2, (start_pos[2] + end_pos[2])/2)
+    
+    # Create cylinder
+    bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=length, location=mid)
+    tube = bpy.context.active_object
+    tube.name = name
+    
+    # Calculate rotation to point from start to end
+    # Default cylinder points along Z axis
+    direction = Vector((dx, dy, dz)).normalized()
+    up = Vector((0, 0, 1))
+    
+    if direction.dot(up) < 0.999:
+        rot_axis = up.cross(direction).normalized()
+        rot_angle = math.acos(up.dot(direction))
+        tube.rotation_mode = 'AXIS_ANGLE'
+        tube.rotation_axis_angle = (rot_angle, rot_axis.x, rot_axis.y, rot_axis.z)
+        bpy.context.view_layer.update()
+        tube.rotation_mode = 'XYZ'
+    
+    # Apply transforms
+    bpy.ops.object.transform_apply(rotation=True)
+    
+    # Make it hollow (tube, not solid cylinder) using boolean or solidify
+    # For simplicity, we'll create an inner cylinder to subtract
+    # Actually, let's use a different approach - create a curved path with bevel
+    
+    # For collision, make it a passive rigid body with MESH collision
+    bpy.context.view_layer.objects.active = tube
+    bpy.ops.rigidbody.object_add(type='PASSIVE')
+    tube.rigid_body.collision_shape = 'MESH'
+    tube.rigid_body.friction = 0.3
+    tube.rigid_body.restitution = 0.5
+    
+    # Semi-transparent material
+    mat = create_glass_material(f"mat_{name}", color, emission_strength=0.5)
+    tube.data.materials.append(mat)
+    
+    return tube
+
+
+def create_curved_tube(name, points, radius=0.6, segments=16):
+    """Create a curved tube along a path using bezier curve with bevel."""
+    # Create bezier curve
+    curve_data = bpy.data.curves.new(name=f"curve_{name}", type='CURVE')
+    curve_data.dimensions = '3D'
+    curve_data.bevel_depth = radius
+    curve_data.bevel_resolution = 4
+    curve_data.fill_mode = 'FULL'
+    
+    # Create spline
+    spline = curve_data.splines.new('BEZIER')
+    spline.bezier_points.add(len(points) - 1)
+    
+    for i, pt in enumerate(points):
+        bp = spline.bezier_points[i]
+        bp.co = Vector(pt)
+        bp.handle_type_left = 'AUTO'
+        bp.handle_type_right = 'AUTO'
+    
+    # Create object
+    tube_obj = bpy.data.objects.new(name, curve_data)
+    bpy.context.collection.objects.link(tube_obj)
+    bpy.context.view_layer.objects.active = tube_obj
+    tube_obj.select_set(True)
+    
+    # Convert to mesh for rigid body
+    bpy.ops.object.convert(target='MESH')
+    
+    # Make hollow by removing interior (use wireframe modifier approach)
+    # Actually for collision we want the outer surface
+    
+    # Add rigid body
+    bpy.ops.rigidbody.object_add(type='PASSIVE')
+    tube_obj.rigid_body.collision_shape = 'MESH'
+    tube_obj.rigid_body.friction = 0.2  # Low friction so balls slide
+    tube_obj.rigid_body.restitution = 0.4
+    tube_obj.rigid_body.use_margin = True
+    tube_obj.rigid_body.collision_margin = 0.04
+    
+    # Semi-transparent material
+    mat = create_glass_material(f"mat_{name}", (0.2, 0.4, 0.6, 1.0), emission_strength=0.8)
+    tube_obj.data.materials.append(mat)
+    
+    return tube_obj
+
+
+def create_half_pipe(name, start_pos, end_pos, radius=0.8, color=(0.15, 0.25, 0.35, 1.0)):
+    """Create a half-pipe (open top channel) for balls to roll through visibly."""
+    dx = end_pos[0] - start_pos[0]
+    dy = end_pos[1] - start_pos[1]
+    dz = end_pos[2] - start_pos[2]
+    length = math.sqrt(dx*dx + dy*dy + dz*dz)
+    mid = ((start_pos[0]+end_pos[0])/2, (start_pos[1]+end_pos[1])/2, (start_pos[2]+end_pos[2])/2)
+    
+    # Create cylinder
+    bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=length, vertices=32, location=mid)
+    pipe = bpy.context.active_object
+    pipe.name = name
+    
+    # Rotate to align with direction
+    direction = Vector((dx, dy, dz)).normalized()
+    up = Vector((0, 0, 1))
+    if abs(direction.dot(up)) < 0.999:
+        rot_axis = up.cross(direction).normalized()
+        rot_angle = math.acos(min(1, max(-1, up.dot(direction))))
+        pipe.rotation_mode = 'AXIS_ANGLE'
+        pipe.rotation_axis_angle = (rot_angle, rot_axis.x, rot_axis.y, rot_axis.z)
+    
+    bpy.ops.object.transform_apply(rotation=True)
+    
+    # Enter edit mode to delete top half (make it a half-pipe)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='DESELECT')
+    
+    # Select vertices with Y > 0 (top half) relative to object center
+    bpy.ops.object.mode_set(mode='OBJECT')
+    mesh = pipe.data
+    for v in mesh.vertices:
+        # Transform to check which side - we want to remove top when looking down
+        if v.co.y > 0:  # Positive local Y
+            v.select = True
+    
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.delete(type='VERT')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # Rigid body
+    bpy.context.view_layer.objects.active = pipe
+    bpy.ops.rigidbody.object_add(type='PASSIVE')
+    pipe.rigid_body.collision_shape = 'MESH'
+    pipe.rigid_body.friction = 0.15
+    pipe.rigid_body.restitution = 0.5
+    
+    # Material
+    mat = create_glass_material(f"mat_{name}", color, emission_strength=1.0)
+    pipe.data.materials.append(mat)
+    
+    return pipe
 
 
 def setup_camera():
@@ -807,9 +954,34 @@ def create_hybrid_transaction(name, color_name, path_points, spawn_frame, physic
     return sphere
 
 
+def spawn_physics_ball(name, color_name, location, spawn_frame):
+    """Spawn a ball with physics at a specific frame."""
+    sphere = create_transaction_sphere(name, color_name, location)
+    
+    # Initially hidden and kinematic (frozen)
+    sphere.hide_render = True
+    sphere.hide_viewport = True
+    sphere.rigid_body.kinematic = True
+    
+    sphere.keyframe_insert(data_path="hide_render", frame=spawn_frame - 1)
+    sphere.keyframe_insert(data_path="hide_viewport", frame=spawn_frame - 1)
+    sphere.rigid_body.keyframe_insert(data_path="kinematic", frame=spawn_frame - 1)
+    
+    # At spawn: visible and physics active
+    sphere.hide_render = False
+    sphere.hide_viewport = False
+    sphere.rigid_body.kinematic = False
+    
+    sphere.keyframe_insert(data_path="hide_render", frame=spawn_frame)
+    sphere.keyframe_insert(data_path="hide_viewport", frame=spawn_frame)
+    sphere.rigid_body.keyframe_insert(data_path="kinematic", frame=spawn_frame)
+    
+    return sphere
+
+
 def create_channel_scene():
-    """Create memory channel visualization with HYBRID physics."""
-    print("Creating Memory Channel Visualization (HYBRID PHYSICS)...")
+    """Create memory channel visualization with TUBES and continuous physics."""
+    print("Creating Memory Channel Visualization (TUBES + PHYSICS)...")
     print("=" * 50)
     
     # Clear existing scene
@@ -835,24 +1007,54 @@ def create_channel_scene():
             color_name=config['color']
         )
     
-    # Create invisible collision walls for physics
+    # Create collision containers
     print("Creating collision containers...")
     for name, config in STRUCTURES.items():
         create_container_walls(f"walls_{name}", config['pos'], config['size'])
     
-    # Add labels (flat on top of boxes)
+    # =========================================================================
+    # CREATE TUBES (half-pipes) CONNECTING THE BOXES
+    # Balls will roll through these with continuous physics!
+    # =========================================================================
+    print("Creating connecting tubes...")
+    
+    # Structure positions (bottom center of each box for tube connections)
+    wcache_out = (0, 0.3, 4 - 1)           # Bottom edge of WCache
+    write_rs_in = (-3.5, 0.3, 0 + 1.25)    # Top edge of Write RS
+    write_rs_out = (-3.5, 0.3, 0 - 1.25)   # Bottom edge of Write RS
+    read_rs_in = (3.5, 0.3, 0 + 1.25)      # Top edge of Read RS
+    read_rs_out = (3.5, 0.3, 0 - 1.25)     # Bottom edge of Read RS
+    dram_in_left = (-2, 0.3, -5 + 1.5)     # Top left of DRAM
+    dram_in_right = (2, 0.3, -5 + 1.5)     # Top right of DRAM
+    dram_out = (3, 0.3, -5 - 1.5)          # Bottom right of DRAM
+    read_return_in = (7, 0.3, -5 + 1.5)    # Top of Read Return
+    read_return_out = (7, 2, -5 - 1.5)     # Bottom of Read Return (exit up)
+    
+    # Create half-pipes
+    # WCache -> Write RS
+    create_half_pipe("tube_wcache_writers", wcache_out, write_rs_in, radius=0.6, color=(0.8, 0.4, 0.1, 1.0))
+    
+    # Write RS -> DRAM (left side)
+    create_half_pipe("tube_writers_dram", write_rs_out, dram_in_left, radius=0.6, color=(0.8, 0.4, 0.1, 1.0))
+    
+    # Read RS -> DRAM (right side)  
+    create_half_pipe("tube_readrs_dram", read_rs_out, dram_in_right, radius=0.6, color=(0.1, 0.5, 0.8, 1.0))
+    
+    # DRAM -> Read Return
+    create_half_pipe("tube_dram_readret", dram_out, read_return_in, radius=0.6, color=(0.1, 0.7, 0.7, 1.0))
+    
+    # Add labels (simple, flat, facing up)
     print("Adding labels...")
-    label_height = 3.5
-    label_color = (1.0, 1.0, 0.8, 1.0)
+    label_color = (1.0, 1.0, 0.9, 1.0)
     labels = [
-        ("WCache", (0, label_height, 4)),
-        ("Write RS", (-3.5, label_height, 0)),
-        ("Read RS", (3.5, label_height, 0)),
-        ("DRAM", (0, label_height, -5)),
-        ("Read Return", (7, label_height, -5)),
+        ("WCache", (0, 3.5, 4)),
+        ("Write RS", (-3.5, 3.5, 0)),
+        ("Read RS", (3.5, 3.5, 0)),
+        ("DRAM", (0, 3.5, -5)),
+        ("Read Return", (7, 3.5, -5)),
     ]
     for text, pos in labels:
-        create_text_label(text, pos, label_color, scale=0.55)
+        create_text_label(text, pos, label_color, scale=0.5)
     
     # Set up camera
     print("Setting up camera...")
@@ -867,53 +1069,42 @@ def create_channel_scene():
     setup_render_settings()
     
     # =========================================================================
-    # CREATE HYBRID TRANSACTIONS
-    # - Keyframed arcs BETWEEN containers
-    # - Rigid body physics INSIDE containers (balls bounce & collide!)
+    # SPAWN BALLS - continuous physics, they roll through tubes!
     # =========================================================================
-    print("Creating hybrid transactions...")
+    print("Spawning transaction balls...")
     random.seed(42)
     
-    # Container positions
-    wcache_pos = (0, 1.5, 4)
-    write_rs_pos = (-3.5, 1.5, 0)
-    read_rs_pos = (3.5, 1.5, 0)
-    dram_pos = (0, 1.5, -5)
-    read_return_pos = (7, 1.5, -5)
+    # Spawn positions (above each entry point)
+    wcache_spawn = (0, 5, 5)          # Above WCache
+    read_rs_spawn = (3.5, 5, 1.5)     # Above Read RS
     
-    # READ TRANSACTIONS: Read RS -> DRAM -> Read Return
-    for i in range(6):
-        path = [
-            read_rs_pos,
-            dram_pos,
-            read_return_pos,
-        ]
-        # Physics time at each stop (balls bounce around inside)
-        physics = [random.randint(40, 70), random.randint(50, 80), random.randint(30, 50)]
-        spawn = 1 + i * 45
-        create_hybrid_transaction(f"ReadTx_{i:03d}", "transaction_read", path, spawn, physics)
+    # WRITE transactions: spawn above WCache, roll through system
+    for i in range(8):
+        x = wcache_spawn[0] + random.uniform(-1, 1)
+        y = wcache_spawn[1] + random.uniform(0, 2)
+        z = wcache_spawn[2] + random.uniform(-0.3, 0.3)
+        spawn_frame = 1 + i * 30  # Stagger spawns
+        spawn_physics_ball(f"WriteTx_{i:03d}", "transaction_write", (x, y, z), spawn_frame)
     
-    # WRITE TRANSACTIONS: WCache -> Write RS -> DRAM
-    for i in range(6):
-        path = [
-            wcache_pos,
-            write_rs_pos,
-            dram_pos,
-        ]
-        physics = [random.randint(35, 60), random.randint(45, 75), random.randint(50, 90)]
-        spawn = 20 + i * 50
-        create_hybrid_transaction(f"WriteTx_{i:03d}", "transaction_write", path, spawn, physics)
+    # READ transactions: spawn above Read RS, roll through system
+    for i in range(8):
+        x = read_rs_spawn[0] + random.uniform(-1, 1)
+        y = read_rs_spawn[1] + random.uniform(0, 2)
+        z = read_rs_spawn[2] + random.uniform(-0.3, 0.3)
+        spawn_frame = 15 + i * 35
+        spawn_physics_ball(f"ReadTx_{i:03d}", "transaction_read", (x, y, z), spawn_frame)
     
     # Animation length
-    bpy.context.scene.frame_end = 600
+    bpy.context.scene.frame_end = 500
     
     print("=" * 50)
-    print("Scene created with HYBRID PHYSICS!")
+    print("Scene created with TUBES + CONTINUOUS PHYSICS!")
     print("")
     print("HOW IT WORKS:")
-    print("  - Balls ARC between containers (keyframe animation)")
-    print("  - Balls DROP & BOUNCE inside containers (rigid body physics)")
-    print("  - Balls COLLIDE with each other when in same container!")
+    print("  - Balls DROP into containers")
+    print("  - Balls ROLL through tubes to next container")
+    print("  - Balls BOUNCE off walls and each other!")
+    print("  - Pure physics - no animation switching!")
     print("")
     print("CONTROLS:")
     print("  SPACEBAR - Play animation")
