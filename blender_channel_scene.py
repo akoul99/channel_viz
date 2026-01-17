@@ -51,41 +51,33 @@ COLORS = {
     'transaction_write': (1.0, 0.4, 0.0, 1.0),  # Orange for writes
 }
 
-# Structure positions - CASCADING layout (top to bottom for gravity flow)
-# Each tier is lower than the previous so balls naturally roll down
+# SIMPLE VERTICAL LAYOUT - boxes stacked top to bottom
+# Balls fall down with gravity through the system
 STRUCTURES = {
-    # TOP TIER - Entry points
     'wcache': {
-        'pos': (-4, 8, 0),      # High left - writes enter here
+        'pos': (-3, 10, 0),     # TOP LEFT
         'size': (3, 2, 3),
         'color': 'wcache',
-        'label': 'WCache',
     },
     'read_rs': {
-        'pos': (4, 8, 0),       # High right - reads enter here
+        'pos': (3, 10, 0),      # TOP RIGHT
         'size': (3, 2, 3),
         'color': 'read_rs',
-        'label': 'Read RS',
     },
-    # MIDDLE TIER
     'write_rs': {
-        'pos': (-4, 4, -5),     # Mid left
+        'pos': (-3, 5, 0),      # MIDDLE LEFT
         'size': (3, 2, 3),
         'color': 'write_rs',
-        'label': 'Write RS',
     },
-    # BOTTOM TIER
     'dram': {
-        'pos': (0, 0, -10),     # Bottom center - everything ends here
-        'size': (6, 2, 4),
+        'pos': (0, 0, 0),       # BOTTOM CENTER
+        'size': (5, 2, 3),
         'color': 'dram',
-        'label': 'DRAM',
     },
     'read_return': {
-        'pos': (6, 4, -5),      # Mid right - reads exit here
+        'pos': (3, 5, 0),       # MIDDLE RIGHT
         'size': (3, 2, 3),
         'color': 'read_return',
-        'label': 'Read Return',
     },
 }
 
@@ -480,8 +472,8 @@ def create_container_walls(name, pos, size):
     return walls
 
 
-def create_text_label(text, location, color, scale=0.5, camera=None):
-    """Create a text label that faces the camera."""
+def create_text_label(text, location, color, scale=0.5):
+    """Create a simple text label facing forward (+Z)."""
     bpy.ops.object.text_add(location=location)
     text_obj = bpy.context.active_object
     text_obj.name = f"Label_{text}"
@@ -490,20 +482,13 @@ def create_text_label(text, location, color, scale=0.5, camera=None):
     text_obj.data.size = scale
     text_obj.data.align_x = 'CENTER'
     text_obj.data.align_y = 'CENTER'
-    text_obj.data.extrude = 0.03
+    text_obj.data.extrude = 0.02
     
-    # Add constraint to always face camera
-    if camera:
-        constraint = text_obj.constraints.new('TRACK_TO')
-        constraint.target = camera
-        constraint.track_axis = 'TRACK_Z'
-        constraint.up_axis = 'UP_Y'
-    else:
-        # Fallback: face forward (toward +Y, +Z)
-        text_obj.rotation_euler = (math.radians(90), 0, 0)
+    # Face forward (toward camera which is on +Z)
+    # No rotation needed - default text faces +Z
     
     # Bright emission material
-    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=15.0)
+    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=12.0)
     text_obj.data.materials.append(mat)
     
     return text_obj
@@ -673,19 +658,17 @@ def create_ramp(name, start_pos, end_pos, width=1.5, color=(0.2, 0.3, 0.4, 1.0))
 
 
 def setup_camera():
-    """Set up camera to view the cascading layout from the side."""
-    # Position camera to see the cascade from front-right
-    bpy.ops.object.camera_add(location=(15, 20, 8))
+    """Camera looking at vertical layout from front."""
+    bpy.ops.object.camera_add(location=(0, 5, 25))
     camera = bpy.context.active_object
     camera.name = "MainCamera"
     
-    # Look toward the center of the scene (around DRAM level)
-    # Point camera at (0, 4, -5)
-    camera.rotation_euler = (math.radians(60), 0, math.radians(145))
+    # Look straight at the scene
+    camera.rotation_euler = (math.radians(10), 0, 0)
     
     bpy.context.scene.camera = camera
-    camera.data.lens = 28  # Wider lens to see more
-    camera.data.clip_end = 200
+    camera.data.lens = 35
+    camera.data.clip_end = 100
     
     return camera
 
@@ -1030,55 +1013,60 @@ def create_channel_scene():
     for name, config in STRUCTURES.items():
         create_container_walls(f"walls_{name}", config['pos'], config['size'])
     
-    # =========================================================================
-    # CREATE RAMPS CONNECTING THE BOXES (cascading layout)
-    # Balls roll down ramps naturally with gravity!
-    # =========================================================================
-    print("Creating connecting ramps...")
-    
-    # Get structure positions from config
+    # Get structure positions
     wcache = STRUCTURES['wcache']['pos']
     read_rs = STRUCTURES['read_rs']['pos']
     write_rs = STRUCTURES['write_rs']['pos']
     dram = STRUCTURES['dram']['pos']
     read_return = STRUCTURES['read_return']['pos']
     
-    # WCache (top left) -> Write RS (mid left)
-    # Ramp from bottom of WCache to top of Write RS
-    create_ramp("ramp_wcache_writers",
-                (wcache[0], wcache[1] - 1, wcache[2] - 1.5),  # Bottom of WCache
-                (write_rs[0], write_rs[1] + 1, write_rs[2] + 1.5),  # Top of Write RS
-                width=2.0, color=(0.9, 0.5, 0.1, 1.0))
+    # =========================================================================
+    # CREATE SIMPLE VERTICAL CHUTES (just tilted planes)
+    # =========================================================================
+    print("Creating chutes...")
     
-    # Write RS (mid left) -> DRAM (bottom center)
-    create_ramp("ramp_writers_dram",
-                (write_rs[0], write_rs[1] - 1, write_rs[2] - 1.5),
-                (dram[0] - 2, dram[1] + 1, dram[2] + 2),
-                width=2.0, color=(0.9, 0.5, 0.1, 1.0))
+    # WCache -> Write RS (vertical drop on left side)
+    create_ramp("chute_wc_wrs", 
+                (wcache[0], wcache[1] - 1, 0),
+                (write_rs[0], write_rs[1] + 1, 0),
+                width=2.5, color=(1.0, 0.6, 0.2, 1.0))
     
-    # Read RS (top right) -> DRAM (bottom center)
-    create_ramp("ramp_readrs_dram",
-                (read_rs[0], read_rs[1] - 1, read_rs[2] - 1.5),
-                (dram[0] + 2, dram[1] + 1, dram[2] + 2),
-                width=2.0, color=(0.1, 0.6, 0.9, 1.0))
+    # Write RS -> DRAM (drop from mid-left to bottom-center)
+    create_ramp("chute_wrs_dram",
+                (write_rs[0], write_rs[1] - 1, 0),
+                (dram[0] - 1.5, dram[1] + 1, 0),
+                width=2.5, color=(1.0, 0.6, 0.2, 1.0))
     
-    # DRAM (bottom) -> Read Return (mid right) - for read data
-    create_ramp("ramp_dram_readret",
-                (dram[0] + 3, dram[1] + 1, dram[2]),
-                (read_return[0], read_return[1] - 1, read_return[2] + 1.5),
-                width=2.0, color=(0.1, 0.8, 0.8, 1.0))
+    # Read RS -> Read Return (drop on right side)
+    create_ramp("chute_rrs_rret",
+                (read_rs[0], read_rs[1] - 1, 0),
+                (read_return[0], read_return[1] + 1, 0),
+                width=2.5, color=(0.2, 0.7, 1.0, 1.0))
     
-    # Set up camera FIRST (so labels can track it)
+    # Read Return -> DRAM
+    create_ramp("chute_rret_dram",
+                (read_return[0], read_return[1] - 1, 0),
+                (dram[0] + 1.5, dram[1] + 1, 0),
+                width=2.5, color=(0.2, 0.8, 0.8, 1.0))
+    
+    # Set up camera
     print("Setting up camera...")
     camera = setup_camera()
     
-    # Add labels that face the camera
+    # Add simple labels
     print("Adding labels...")
     label_color = (1.0, 1.0, 0.9, 1.0)
+    label_names = {
+        'wcache': 'WCache',
+        'read_rs': 'Read RS', 
+        'write_rs': 'Write RS',
+        'dram': 'DRAM',
+        'read_return': 'Read Return'
+    }
     for name, config in STRUCTURES.items():
         pos = config['pos']
-        label_pos = (pos[0], pos[1] + config['size'][1]/2 + 0.5, pos[2])
-        create_text_label(config['label'], label_pos, label_color, scale=0.6, camera=camera)
+        label_pos = (pos[0], pos[1] + 2, pos[2] + 2)  # In front of box
+        create_text_label(label_names[name], label_pos, label_color, scale=0.5)
     
     # Set up lighting
     print("Setting up lighting...")
@@ -1089,43 +1077,39 @@ def create_channel_scene():
     setup_render_settings()
     
     # =========================================================================
-    # SPAWN BALLS - they drop and roll down ramps!
+    # SPAWN BALLS - drop from top, fall through system
     # =========================================================================
     print("Spawning transaction balls...")
     random.seed(42)
     
-    # WRITE transactions: spawn above WCache
-    for i in range(6):
-        x = wcache[0] + random.uniform(-0.8, 0.8)
-        y = wcache[1] + 3 + random.uniform(0, 2)
-        z = wcache[2] + random.uniform(-0.8, 0.8)
-        spawn_frame = 1 + i * 25
-        spawn_physics_ball(f"WriteTx_{i:03d}", "transaction_write", (x, y, z), spawn_frame)
+    # WRITE balls: drop into WCache at top-left
+    for i in range(5):
+        x = wcache[0] + random.uniform(-0.5, 0.5)
+        y = wcache[1] + 4  # Above WCache
+        z = 0
+        spawn_frame = 1 + i * 20
+        spawn_physics_ball(f"Write_{i}", "transaction_write", (x, y, z), spawn_frame)
     
-    # READ transactions: spawn above Read RS
-    for i in range(6):
-        x = read_rs[0] + random.uniform(-0.8, 0.8)
-        y = read_rs[1] + 3 + random.uniform(0, 2)
-        z = read_rs[2] + random.uniform(-0.8, 0.8)
-        spawn_frame = 15 + i * 30
-        spawn_physics_ball(f"ReadTx_{i:03d}", "transaction_read", (x, y, z), spawn_frame)
+    # READ balls: drop into Read RS at top-right
+    for i in range(5):
+        x = read_rs[0] + random.uniform(-0.5, 0.5)
+        y = read_rs[1] + 4  # Above Read RS
+        z = 0
+        spawn_frame = 10 + i * 25
+        spawn_physics_ball(f"Read_{i}", "transaction_read", (x, y, z), spawn_frame)
     
-    # Animation length
-    bpy.context.scene.frame_end = 400
+    bpy.context.scene.frame_end = 300
     
     print("=" * 50)
-    print("Scene created with RAMPS + PHYSICS!")
+    print("SIMPLE VERTICAL LAYOUT")
     print("")
-    print("CASCADING LAYOUT:")
-    print("  TOP: WCache (writes), Read RS (reads)")
-    print("  MID: Write RS, Read Return")
-    print("  BOT: DRAM (everything ends here)")
+    print("  [WCache]    [Read RS]    <- TOP (balls enter)")
+    print("     |            |")
+    print("  [Write RS]  [Read Ret]   <- MIDDLE")
+    print("      \\          /")
+    print("        [DRAM]             <- BOTTOM (balls collect)")
     print("")
-    print("Balls drop -> roll down ramps -> collect in DRAM!")
-    print("")
-    print("CONTROLS:")
-    print("  SPACEBAR - Play animation")
-    print("  Z key    - Rendered view for glow effects")
+    print("Press SPACEBAR to watch balls fall!")
 
 
 # ============================================================================
