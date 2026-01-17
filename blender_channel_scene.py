@@ -318,6 +318,29 @@ def create_transaction_sphere(name, color_name, location=(0, 1.5, 5)):
     return sphere
 
 
+def create_text_label(text, location, color, scale=0.4):
+    """Create a 3D text label."""
+    # Create text object
+    bpy.ops.object.text_add(location=location)
+    text_obj = bpy.context.active_object
+    text_obj.name = f"Label_{text}"
+    text_obj.data.body = text
+    
+    # Set text properties
+    text_obj.data.size = scale
+    text_obj.data.align_x = 'CENTER'
+    text_obj.data.align_y = 'CENTER'
+    
+    # Rotate to face camera (flat on XZ plane, facing up)
+    text_obj.rotation_euler = (math.radians(90), 0, 0)
+    
+    # Create emission material for the text
+    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=3.0)
+    text_obj.data.materials.append(mat)
+    
+    return text_obj
+
+
 def setup_camera():
     """Set up camera for top-down isometric view."""
     # Create camera
@@ -491,6 +514,19 @@ def create_channel_scene():
             color_name=config['color']
         )
     
+    # Add labels for each structure
+    print("Adding labels...")
+    label_height = 1.3  # Height above structures
+    labels = [
+        ("WCache", (0, label_height, 3), COLORS['wcache']),
+        ("Write RS", (-2.5, label_height, 0), COLORS['write_rs']),
+        ("Read RS", (2.5, label_height, 0), COLORS['read_rs']),
+        ("DRAM", (0, label_height, -4), COLORS['dram']),
+        ("Read Return", (6, label_height, -4), COLORS['read_return']),
+    ]
+    for text, pos, color in labels:
+        create_text_label(text, pos, color, scale=0.5)
+    
     # Set up camera
     print("Setting up camera...")
     setup_camera()
@@ -507,12 +543,14 @@ def create_channel_scene():
     print("Creating sample transactions...")
     
     # Read transaction path
+    # Read enters, goes to Read RS, then DRAM, then Read Return, then exits UPWARD (back out of channel)
     read_waypoints = [
-        (3, 1.5, 6),      # Start (entering)
+        (3, 1.5, 6),      # Start (entering from top)
         (2.5, 1.5, 0),    # Read RS
         (2, 1.5, -4),     # DRAM
         (6, 1.5, -4),     # Read Return
-        (6, 1.5, -8),     # Exit
+        (6, 1.5, 6),      # Exit (upward, back out the channel boundary)
+        (6, 1.5, 10),     # Continue up and out
     ]
     read_tx = create_transaction_sphere("ReadTx_001", "transaction_read", read_waypoints[0])
     animate_transaction(read_tx, read_waypoints, start_frame=1)
