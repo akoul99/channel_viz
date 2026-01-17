@@ -163,11 +163,16 @@ def animate_ball(ball, waypoints, start_frame, frames_per_stop=30):
         ball.keyframe_insert(data_path="location", frame=frame)
         frame += frames_per_stop
     
-    # Smooth interpolation
-    if ball.animation_data and ball.animation_data.action:
-        for fc in ball.animation_data.action.fcurves:
-            for kf in fc.keyframe_points:
-                kf.interpolation = 'BEZIER'
+    # Smooth interpolation (with version compatibility)
+    try:
+        if ball.animation_data and ball.animation_data.action:
+            fcurves = getattr(ball.animation_data.action, 'fcurves', None)
+            if fcurves:
+                for fc in fcurves:
+                    for kf in fc.keyframe_points:
+                        kf.interpolation = 'BEZIER'
+    except:
+        pass  # Skip if not supported
 
 
 def setup_camera():
