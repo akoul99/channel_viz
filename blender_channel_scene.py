@@ -233,68 +233,6 @@ def create_structure_box(name, pos, size, color_name):
     return obj
 
 
-def create_collision_container(name, pos, size):
-    """Create invisible open-top collision container for rigid body physics."""
-    thickness = 0.1
-    sx, sy, sz = size
-    
-    collision_objs = []
-    
-    # Floor of container
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(pos[0], pos[1] - sy/2 + thickness/2, pos[2]))
-    floor = bpy.context.active_object
-    floor.name = f"{name}_floor"
-    floor.scale = (sx, thickness, sz)
-    bpy.ops.object.transform_apply(scale=True)
-    collision_objs.append(floor)
-    
-    # Four walls (no top - open container)
-    # Front wall (positive Z)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(pos[0], pos[1], pos[2] + sz/2 - thickness/2))
-    wall = bpy.context.active_object
-    wall.name = f"{name}_wall_front"
-    wall.scale = (sx, sy, thickness)
-    bpy.ops.object.transform_apply(scale=True)
-    collision_objs.append(wall)
-    
-    # Back wall (negative Z)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(pos[0], pos[1], pos[2] - sz/2 + thickness/2))
-    wall = bpy.context.active_object
-    wall.name = f"{name}_wall_back"
-    wall.scale = (sx, sy, thickness)
-    bpy.ops.object.transform_apply(scale=True)
-    collision_objs.append(wall)
-    
-    # Left wall (negative X)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(pos[0] - sx/2 + thickness/2, pos[1], pos[2]))
-    wall = bpy.context.active_object
-    wall.name = f"{name}_wall_left"
-    wall.scale = (thickness, sy, sz)
-    bpy.ops.object.transform_apply(scale=True)
-    collision_objs.append(wall)
-    
-    # Right wall (positive X)
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(pos[0] + sx/2 - thickness/2, pos[1], pos[2]))
-    wall = bpy.context.active_object
-    wall.name = f"{name}_wall_right"
-    wall.scale = (thickness, sy, sz)
-    bpy.ops.object.transform_apply(scale=True)
-    collision_objs.append(wall)
-    
-    # Make all collision objects passive rigid bodies and invisible
-    for obj in collision_objs:
-        # Set up rigid body
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.rigidbody.object_add(type='PASSIVE')
-        obj.rigid_body.collision_shape = 'BOX'
-        obj.rigid_body.friction = 0.5
-        obj.rigid_body.restitution = 0.6  # Bounciness
-        
-        # Make invisible but keep collision
-        obj.hide_render = True
-        obj.display_type = 'WIRE'
-    
-    return collision_objs
 
 
 def create_floor():
@@ -437,10 +375,10 @@ def create_sphere_material_3d(name, color, emission_strength=5.0):
     return mat
 
 
-def create_transaction_sphere(name, color_name, location=(0, 1.5, 5), use_physics=True):
-    """Create a glowing 3D transaction sphere with rigid body physics."""
+def create_transaction_sphere(name, color_name, location=(0, 1.5, 5), use_physics=False):
+    """Create a glowing 3D transaction sphere."""
     # Higher subdivision for smoother sphere
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.35, segments=24, ring_count=16, location=location)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.4, segments=32, ring_count=24, location=location)
     sphere = bpy.context.active_object
     sphere.name = name
     
@@ -449,25 +387,14 @@ def create_transaction_sphere(name, color_name, location=(0, 1.5, 5), use_physic
     
     # Create 3D material with specular and glow
     color = COLORS.get(color_name, COLORS['transaction_read'])
-    mat = create_sphere_material_3d(f"mat_{name}", color, emission_strength=6.0)
+    mat = create_sphere_material_3d(f"mat_{name}", color, emission_strength=8.0)
     sphere.data.materials.append(mat)
-    
-    # Add rigid body physics
-    if use_physics:
-        bpy.context.view_layer.objects.active = sphere
-        bpy.ops.rigidbody.object_add(type='ACTIVE')
-        sphere.rigid_body.mass = 1.0
-        sphere.rigid_body.collision_shape = 'SPHERE'
-        sphere.rigid_body.friction = 0.4
-        sphere.rigid_body.restitution = 0.7  # Bouncy!
-        sphere.rigid_body.linear_damping = 0.1
-        sphere.rigid_body.angular_damping = 0.2
     
     return sphere
 
 
 def create_text_label(text, location, color, scale=0.4):
-    """Create a 3D text label."""
+    """Create a 3D text label facing the isometric camera."""
     # Create text object
     bpy.ops.object.text_add(location=location)
     text_obj = bpy.context.active_object
@@ -478,12 +405,14 @@ def create_text_label(text, location, color, scale=0.4):
     text_obj.data.size = scale
     text_obj.data.align_x = 'CENTER'
     text_obj.data.align_y = 'CENTER'
+    text_obj.data.extrude = 0.05  # Give text some depth
     
-    # Rotate to face camera (flat on XZ plane, facing up)
-    text_obj.rotation_euler = (math.radians(90), 0, 0)
+    # Rotate to face the isometric camera (camera is at 55° down, 135° around Z)
+    # Text should be upright and readable from camera view
+    text_obj.rotation_euler = (math.radians(55), 0, math.radians(-45))
     
-    # Create emission material for the text (bright glow for visibility)
-    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=8.0)
+    # Create emission material for the text
+    mat = create_emission_material(f"mat_label_{text}", (*color[:3], 1.0), emission_strength=10.0)
     text_obj.data.materials.append(mat)
     
     return text_obj
@@ -691,51 +620,105 @@ def animate_transaction(sphere, waypoints, start_frame=1, wait_times=None):
 # MAIN SCENE CREATION
 # ============================================================================
 
-def setup_rigid_body_world():
-    """Set up the rigid body physics world."""
-    scene = bpy.context.scene
-    
-    # Create rigid body world if it doesn't exist
-    if scene.rigidbody_world is None:
-        bpy.ops.rigidbody.world_add()
-    
-    # Configure physics settings
-    rbw = scene.rigidbody_world
-    rbw.enabled = True
-    rbw.point_cache.frame_start = 1
-    rbw.point_cache.frame_end = 500
-    rbw.substeps_per_frame = 10  # More accurate simulation
-    rbw.solver_iterations = 20
 
 
-def spawn_ball_at_frame(name, color_name, location, spawn_frame):
-    """Create a ball that appears at a specific frame using animated visibility and kinematic switching."""
-    sphere = create_transaction_sphere(name, color_name, location, use_physics=True)
+def create_flowing_transaction(name, color_name, path_points, spawn_frame, hold_frames):
+    """
+    Create a transaction ball that flows through multiple containers.
     
-    # Start as kinematic (frozen) and invisible
-    sphere.rigid_body.kinematic = True
+    path_points: list of (x, y, z) positions for each stop
+    hold_frames: list of frames to wait at each stop before moving to next
+    
+    Uses keyframed animation with physics-style easing (not rigid body).
+    """
+    # Create sphere at first position
+    sphere = create_transaction_sphere(name, color_name, path_points[0], use_physics=False)
+    
+    # Initially hidden
     sphere.hide_render = True
     sphere.hide_viewport = True
-    
-    # Keyframe: hidden and kinematic before spawn
     sphere.keyframe_insert(data_path="hide_render", frame=spawn_frame - 1)
     sphere.keyframe_insert(data_path="hide_viewport", frame=spawn_frame - 1)
-    sphere.rigid_body.keyframe_insert(data_path="kinematic", frame=spawn_frame - 1)
     
-    # Keyframe: visible and active physics at spawn
+    # Become visible at spawn
     sphere.hide_render = False
     sphere.hide_viewport = False
-    sphere.rigid_body.kinematic = False
     sphere.keyframe_insert(data_path="hide_render", frame=spawn_frame)
     sphere.keyframe_insert(data_path="hide_viewport", frame=spawn_frame)
-    sphere.rigid_body.keyframe_insert(data_path="kinematic", frame=spawn_frame)
+    
+    current_frame = spawn_frame
+    travel_frames = 25  # Frames to travel between stops
+    
+    for i, pos in enumerate(path_points):
+        # Arrival at this position
+        sphere.location = pos
+        sphere.keyframe_insert(data_path="location", frame=current_frame)
+        
+        # Bounce squash on landing (except first point)
+        if i > 0:
+            # Squash
+            sphere.scale = (1.2, 0.6, 1.2)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+            # Bounce back
+            sphere.scale = (0.85, 1.3, 0.85)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame + 4)
+            # Settle
+            sphere.scale = (1.0, 1.0, 1.0)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame + 8)
+        else:
+            sphere.scale = (1.0, 1.0, 1.0)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+        
+        # Wait at this stop
+        hold = hold_frames[i] if i < len(hold_frames) else 30
+        current_frame += hold
+        
+        # Still at same position after waiting
+        sphere.location = pos
+        sphere.keyframe_insert(data_path="location", frame=current_frame)
+        
+        # If not last point, animate the arc to next position
+        if i < len(path_points) - 1:
+            next_pos = path_points[i + 1]
+            
+            # Calculate arc midpoint (high point of the arc)
+            mid_x = (pos[0] + next_pos[0]) / 2
+            mid_z = (pos[2] + next_pos[2]) / 2
+            arc_height = max(pos[1], next_pos[1]) + 2.5  # Arc above both points
+            
+            # Stretch before launch
+            current_frame += 3
+            sphere.scale = (0.8, 1.4, 0.8)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+            
+            # Launch - at peak of arc
+            current_frame += travel_frames // 2
+            sphere.location = (mid_x, arc_height, mid_z)
+            sphere.scale = (1.1, 0.9, 1.1)  # Slightly flat at top of arc
+            sphere.keyframe_insert(data_path="location", frame=current_frame)
+            sphere.keyframe_insert(data_path="scale", frame=current_frame)
+            
+            # Descend to next position
+            current_frame += travel_frames // 2
+            # Next iteration will set the landing position
+    
+    # Set interpolation to bezier for smooth arcs
+    try:
+        if sphere.animation_data and sphere.animation_data.action:
+            for fcurve in sphere.animation_data.action.fcurves:
+                for kf in fcurve.keyframe_points:
+                    kf.interpolation = 'BEZIER'
+                    kf.handle_left_type = 'AUTO_CLAMPED'
+                    kf.handle_right_type = 'AUTO_CLAMPED'
+    except:
+        pass
     
     return sphere
 
 
 def create_channel_scene():
-    """Create the complete memory channel visualization scene with PHYSICS."""
-    print("Creating Memory Channel Visualization Scene (PHYSICS MODE)...")
+    """Create the memory channel visualization with FLOWING transactions."""
+    print("Creating Memory Channel Visualization Scene...")
     print("=" * 50)
     
     # Clear existing scene
@@ -746,11 +729,7 @@ def create_channel_scene():
     print("Setting up world...")
     setup_world()
     
-    # Set up rigid body physics world
-    print("Setting up physics world...")
-    setup_rigid_body_world()
-    
-    # Create visual structures (the nice looking boxes)
+    # Create visual structures
     print("Creating structures...")
     for name, config in STRUCTURES.items():
         print(f"  - Creating {name}...")
@@ -761,29 +740,19 @@ def create_channel_scene():
             color_name=config['color']
         )
     
-    # Create collision containers for physics (invisible walls)
-    print("Creating physics collision containers...")
-    for name, config in STRUCTURES.items():
-        print(f"  - Creating collision for {name}...")
-        create_collision_container(
-            name=f"collision_{name}",
-            pos=config['pos'],
-            size=config['size']
-        )
-    
-    # Add labels for each structure
+    # Add labels for each structure (positioned above boxes, facing camera)
     print("Adding labels...")
-    label_height = 3.5
-    label_color = (1.0, 1.0, 0.9, 1.0)
+    label_height = 4.0
+    label_color = (1.0, 1.0, 0.8, 1.0)  # Warm white
     labels = [
-        ("WCache", (0, label_height, 4)),
-        ("Write RS", (-3.5, label_height, 0)),
-        ("Read RS", (3.5, label_height, 0)),
-        ("DRAM", (0, label_height, -5)),
-        ("Read Return", (7, label_height, -5)),
+        ("WCache", (0, label_height, 5.5)),
+        ("Write RS", (-3.5, label_height, 1.5)),
+        ("Read RS", (3.5, label_height, 1.5)),
+        ("DRAM", (0, label_height, -3.5)),
+        ("Read Return", (7, label_height, -3.5)),
     ]
     for text, pos in labels:
-        create_text_label(text, pos, label_color, scale=0.8)
+        create_text_label(text, pos, label_color, scale=0.6)
     
     # Set up camera
     print("Setting up camera...")
@@ -798,63 +767,59 @@ def create_channel_scene():
     setup_render_settings()
     
     # =========================================================================
-    # SPAWN BALLS WITH PHYSICS - they drop into containers and bounce!
+    # CREATE FLOWING TRANSACTIONS - balls arc between containers!
     # =========================================================================
-    print("Spawning transaction balls with physics...")
+    print("Creating flowing transactions...")
     random.seed(42)
     
-    # Drop balls into Read RS (cyan)
-    for i in range(8):
-        x = 3.5 + random.uniform(-1.2, 1.2)
-        z = 0 + random.uniform(-0.8, 0.8)
-        y = 6 + random.uniform(0, 3)  # Drop from above
-        spawn_frame = 1 + i * 12  # Stagger spawns
-        spawn_ball_at_frame(f"ReadTx_{i:03d}", "transaction_read", (x, y, z), spawn_frame)
+    # Structure center positions for pathing
+    wcache_pos = (0, 1.5, 4)
+    write_rs_pos = (-3.5, 1.5, 0)
+    read_rs_pos = (3.5, 1.5, 0)
+    dram_pos = (0, 1.5, -5)
+    read_return_pos = (7, 1.5, -5)
+    entry_pos = (0, 5, 10)  # Entry point (above and in front)
+    exit_pos = (7, 5, 10)   # Exit point
     
-    # Drop balls into Write RS (orange) 
-    for i in range(6):
-        x = -3.5 + random.uniform(-1.2, 1.2)
-        z = 0 + random.uniform(-0.8, 0.8)
-        y = 6 + random.uniform(0, 3)
-        spawn_frame = 10 + i * 15
-        spawn_ball_at_frame(f"WriteTx_{i:03d}", "transaction_write", (x, y, z), spawn_frame)
-    
-    # Drop balls into WCache (green)
+    # READ TRANSACTIONS: Enter -> Read RS -> DRAM -> Read Return -> Exit
     for i in range(5):
-        x = 0 + random.uniform(-1.5, 1.5)
-        z = 4 + random.uniform(-0.6, 0.6)
-        y = 6 + random.uniform(0, 2)
-        spawn_frame = 5 + i * 18
-        spawn_ball_at_frame(f"WCacheTx_{i:03d}", "wcache", (x, y, z), spawn_frame)
+        x_jitter = random.uniform(-0.5, 0.5)
+        path = [
+            (entry_pos[0] + 3 + x_jitter, entry_pos[1], entry_pos[2]),  # Enter right side
+            (read_rs_pos[0] + x_jitter, read_rs_pos[1], read_rs_pos[2]),  # Read RS
+            (dram_pos[0] + 2 + x_jitter, dram_pos[1], dram_pos[2]),  # DRAM (right side)
+            (read_return_pos[0] + x_jitter * 0.5, read_return_pos[1], read_return_pos[2]),  # Read Return
+            (exit_pos[0], exit_pos[1], exit_pos[2]),  # Exit
+        ]
+        holds = [5, random.randint(20, 50), random.randint(30, 60), random.randint(15, 35), 0]
+        spawn = 1 + i * 50
+        create_flowing_transaction(f"ReadTx_{i:03d}", "transaction_read", path, spawn, holds)
     
-    # Drop balls into DRAM (purple)
-    for i in range(10):
-        x = 0 + random.uniform(-2.5, 2.5)
-        z = -5 + random.uniform(-1, 1)
-        y = 6 + random.uniform(0, 4)
-        spawn_frame = 1 + i * 10
-        spawn_ball_at_frame(f"DRAMTx_{i:03d}", "dram", (x, y, z), spawn_frame)
-    
-    # Drop balls into Read Return (cyan)
-    for i in range(4):
-        x = 7 + random.uniform(-0.8, 0.8)
-        z = -5 + random.uniform(-1, 1)
-        y = 6 + random.uniform(0, 2)
-        spawn_frame = 30 + i * 20
-        spawn_ball_at_frame(f"ReturnTx_{i:03d}", "read_return", (x, y, z), spawn_frame)
+    # WRITE TRANSACTIONS: Enter -> WCache -> Write RS -> DRAM
+    for i in range(5):
+        x_jitter = random.uniform(-0.5, 0.5)
+        path = [
+            (entry_pos[0] - 2 + x_jitter, entry_pos[1], entry_pos[2]),  # Enter left side
+            (wcache_pos[0] + x_jitter, wcache_pos[1], wcache_pos[2]),  # WCache
+            (write_rs_pos[0] + x_jitter, write_rs_pos[1], write_rs_pos[2]),  # Write RS
+            (dram_pos[0] - 2 + x_jitter, dram_pos[1], dram_pos[2]),  # DRAM (left side)
+        ]
+        holds = [5, random.randint(25, 55), random.randint(20, 45), random.randint(30, 70)]
+        spawn = 25 + i * 55
+        create_flowing_transaction(f"WriteTx_{i:03d}", "transaction_write", path, spawn, holds)
     
     # Animation length
-    bpy.context.scene.frame_end = 500
+    bpy.context.scene.frame_end = 450
     
     print("=" * 50)
-    print("Scene created successfully with PHYSICS!")
+    print("Scene created successfully!")
     print("")
-    print("NEXT STEPS:")
-    print("1. Press SPACEBAR to play and watch balls bounce!")
-    print("2. The physics will simulate automatically")
-    print("3. Press F12 to render a frame")
+    print("CONTROLS:")
+    print("  SPACEBAR - Play animation (watch balls arc between units!)")
+    print("  Z key    - Switch to Rendered view for glow effects")
+    print("  F12      - Render current frame")
     print("")
-    print("TIP: Switch to 'Rendered' viewport (Z key) for full glow effects!")
+    print("Transactions flow: Entry -> Units -> DRAM -> Exit")
 
 
 # ============================================================================
