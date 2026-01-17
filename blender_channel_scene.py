@@ -30,6 +30,7 @@ Style: Dark Cyberpunk with neon glows
 import bpy
 import bmesh
 import math
+import random
 from mathutils import Vector
 
 # ============================================================================
@@ -95,9 +96,14 @@ TRANSACTION_SPEED = 0.5  # Units per frame
 # ============================================================================
 
 def clear_scene():
-    """Remove all objects from the scene."""
+    """Remove all objects from the scene - aggressive cleanup."""
+    # Delete all objects
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete(use_global=False)
+    
+    # Also delete any remaining objects directly
+    for obj in bpy.data.objects:
+        bpy.data.objects.remove(obj, do_unlink=True)
     
     # Clear materials
     for material in bpy.data.materials:
@@ -106,6 +112,18 @@ def clear_scene():
     # Clear meshes
     for mesh in bpy.data.meshes:
         bpy.data.meshes.remove(mesh)
+    
+    # Clear curves
+    for curve in bpy.data.curves:
+        bpy.data.curves.remove(curve)
+    
+    # Clear cameras
+    for camera in bpy.data.cameras:
+        bpy.data.cameras.remove(camera)
+    
+    # Clear lights
+    for light in bpy.data.lights:
+        bpy.data.lights.remove(light)
 
 
 def create_emission_material(name, color, emission_strength=5.0):
@@ -450,19 +468,34 @@ def setup_render_settings():
     scene.frame_end = 120  # 4 seconds at 30fps
 
 
-def animate_transaction(sphere, waypoints, start_frame=1):
+def animate_transaction(sphere, waypoints, start_frame=1, wait_times=None):
     """
-    Animate a transaction sphere along waypoints.
+    Animate a transaction sphere along waypoints with optional wait times.
     
     waypoints: list of (x, y, z) tuples
+    wait_times: list of frame counts to wait at each waypoint (None = no wait)
     """
-    frames_per_segment = 20
+    frames_per_move = 15  # Frames to move between waypoints
+    
+    if wait_times is None:
+        wait_times = [0] * len(waypoints)
+    
+    current_frame = start_frame
     
     for i, pos in enumerate(waypoints):
-        frame = start_frame + i * frames_per_segment
-        
+        # Set position at arrival
         sphere.location = pos
-        sphere.keyframe_insert(data_path="location", frame=frame)
+        sphere.keyframe_insert(data_path="location", frame=current_frame)
+        
+        # If there's a wait time, add another keyframe after waiting
+        wait = wait_times[i] if i < len(wait_times) else 0
+        if wait > 0:
+            current_frame += wait
+            sphere.location = pos
+            sphere.keyframe_insert(data_path="location", frame=current_frame)
+        
+        # Move to next segment
+        current_frame += frames_per_move
     
     # Set interpolation to smooth (compatible with multiple Blender versions)
     try:
@@ -471,13 +504,11 @@ def animate_transaction(sphere, waypoints, start_frame=1):
             for fcurve in fcurves:
                 for keyframe in fcurve.keyframe_points:
                     keyframe.interpolation = 'BEZIER'
-                    # easing attribute may not exist in all versions
                     try:
                         keyframe.easing = 'EASE_IN_OUT'
                     except AttributeError:
                         pass
     except (AttributeError, TypeError):
-        # Skip smooth interpolation if API is incompatible
         print(f"Note: Could not set smooth interpolation for {sphere.name}")
 
 
@@ -541,31 +572,51 @@ def create_channel_scene():
     print("Configuring render settings...")
     setup_render_settings()
     
-    # Create sample transactions
+    # Create sample transactions with random wait times
     print("Creating sample transactions...")
+    random.seed(42)  # For reproducibility
     
-    # Read transaction path
-    # Read enters, goes to Read RS, then DRAM, then Read Return, then exits UPWARD (back out of channel)
-    read_waypoints = [
-        (3, 1.5, 6),      # Start (entering from top)
-        (2.5, 1.5, 0),    # Read RS
-        (2, 1.5, -4),     # DRAM
-        (6, 1.5, -4),     # Read Return
-        (6, 1.5, 6),      # Exit (upward, back out the channel boundary)
-        (6, 1.5, 10),     # Continue up and out
-    ]
-    read_tx = create_transaction_sphere("ReadTx_001", "transaction_read", read_waypoints[0])
-    animate_transaction(read_tx, read_waypoints, start_frame=1)
+    # Base waypoints for read transactions
+    def make_read_waypoints(x_offset=0):
+        return [
+            (3 + x_offset, 1.5, 8),     # Start (entering from top)
+            (2.5 + x_offset, 1.5, 0),   # Read RS
+            (2 + x_offset, 1.5, -4),    # DRAM
+            (6, 1.5, -4),               # Read Return
+            (6, 1.5, 8),                # Exit (upward, back out the channel boundary)
+        ]
     
-    # Write transaction path
-    write_waypoints = [
-        (-1, 1.5, 6),     # Start (entering)
-        (0, 1.5, 3),      # WCache
-        (-2.5, 1.5, 0),   # Write RS
-        (-1, 1.5, -4),    # DRAM
-    ]
-    write_tx = create_transaction_sphere("WriteTx_001", "transaction_write", write_waypoints[0])
-    animate_transaction(write_tx, write_waypoints, start_frame=30)
+    # Base waypoints for write transactions
+    def make_write_waypoints(x_offset=0):
+        return [
+            (-1 + x_offset, 1.5, 8),    # Start (entering)
+            (0 + x_offset, 1.5, 3),     # WCache
+            (-2.5 + x_offset, 1.5, 0),  # Write RS
+            (-1 + x_offset, 1.5, -4),   # DRAM
+        ]
+    
+    # Create multiple read transactions
+    for i in range(4):
+        x_off = random.uniform(-0.5, 0.5)
+        waypoints = make_read_waypoints(x_off)
+        # Random wait times at each stop (0-45 frames = 0-1.5 seconds)
+        wait_times = [0, random.randint(10, 45), random.randint(15, 50), random.randint(10, 35), 0]
+        start = 1 + i * 40  # Stagger start times
+        tx = create_transaction_sphere(f"ReadTx_{i:03d}", "transaction_read", waypoints[0])
+        animate_transaction(tx, waypoints, start_frame=start, wait_times=wait_times)
+    
+    # Create multiple write transactions
+    for i in range(4):
+        x_off = random.uniform(-0.5, 0.5)
+        waypoints = make_write_waypoints(x_off)
+        # Random wait times at each stop
+        wait_times = [0, random.randint(15, 50), random.randint(10, 40), random.randint(20, 60)]
+        start = 20 + i * 45  # Stagger start times
+        tx = create_transaction_sphere(f"WriteTx_{i:03d}", "transaction_write", waypoints[0])
+        animate_transaction(tx, waypoints, start_frame=start, wait_times=wait_times)
+    
+    # Extend animation length to accommodate all transactions
+    bpy.context.scene.frame_end = 350
     
     print("=" * 50)
     print("Scene created successfully!")
