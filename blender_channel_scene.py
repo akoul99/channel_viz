@@ -51,36 +51,37 @@ COLORS = {
     'transaction_write': (1.0, 0.4, 0.0, 1.0),  # Orange for writes
 }
 
-# Structure positions and sizes (x, y, z) - top-down layout
-# Y is "up" in our view, structures laid out on X-Z plane
+# Structure positions and sizes (x, y, z)
+# Y is vertical (height), X-Z is the ground plane
+# Taller boxes (Y=2-3) to look like 3D containers that hold balls
 STRUCTURES = {
     'wcache': {
-        'pos': (0, 0.5, 3),
-        'size': (4, 1, 1.5),
+        'pos': (0, 1.5, 4),
+        'size': (5, 3, 2),
         'color': 'wcache',
         'label': 'WCache',
     },
     'write_rs': {
-        'pos': (-2.5, 0.5, 0),
-        'size': (3, 1, 2),
+        'pos': (-3.5, 1.5, 0),
+        'size': (4, 3, 2.5),
         'color': 'write_rs',
         'label': 'Write RS',
     },
     'read_rs': {
-        'pos': (2.5, 0.5, 0),
-        'size': (3, 1, 2),
+        'pos': (3.5, 1.5, 0),
+        'size': (4, 3, 2.5),
         'color': 'read_rs',
         'label': 'Read RS',
     },
     'dram': {
-        'pos': (0, 0.5, -4),
-        'size': (6, 1, 2.5),
+        'pos': (0, 1.5, -5),
+        'size': (8, 3, 3),
         'color': 'dram',
         'label': 'DRAM',
     },
     'read_return': {
-        'pos': (6, 0.5, -4),
-        'size': (2, 1, 2.5),
+        'pos': (7, 1.5, -5),
+        'size': (2.5, 3, 3),
         'color': 'read_return',
         'label': 'Read Return',
     },
@@ -360,21 +361,23 @@ def create_text_label(text, location, color, scale=0.4):
 
 
 def setup_camera():
-    """Set up camera for top-down isometric view."""
-    # Create camera
-    bpy.ops.object.camera_add(location=(0, 20, 5))
+    """Set up camera for 3D isometric view - shows depth of boxes."""
+    # Create camera - positioned to see the 3D depth
+    # Further back and higher to see the whole scene with depth
+    bpy.ops.object.camera_add(location=(18, 18, 12))
     camera = bpy.context.active_object
     camera.name = "MainCamera"
     
-    # Point camera down at scene center
-    camera.rotation_euler = (math.radians(70), 0, 0)
+    # Isometric-ish angle: ~55 degrees down, rotated 45 degrees around Z
+    # This shows the 3D nature of the boxes nicely
+    camera.rotation_euler = (math.radians(55), 0, math.radians(135))
     
     # Set as active camera
     bpy.context.scene.camera = camera
     
-    # Camera settings
-    camera.data.lens = 50
-    camera.data.clip_end = 100
+    # Camera settings - wider lens for more dramatic perspective
+    camera.data.lens = 35
+    camera.data.clip_end = 200
     
     return camera
 
@@ -545,20 +548,20 @@ def create_channel_scene():
             color_name=config['color']
         )
     
-    # Add labels for each structure
+    # Add labels for each structure (positioned above the taller boxes)
     print("Adding labels...")
-    label_height = 1.8  # Height above structures
+    label_height = 3.5  # Height above structures (boxes are now taller)
     # Use bright white/yellow for high contrast labels
     label_color = (1.0, 1.0, 0.9, 1.0)  # Bright warm white
     labels = [
-        ("WCache", (0, label_height, 3)),
-        ("Write RS", (-2.5, label_height, 0)),
-        ("Read RS", (2.5, label_height, 0)),
-        ("DRAM", (0, label_height, -4)),
-        ("Read Return", (6, label_height, -4)),
+        ("WCache", (0, label_height, 4)),
+        ("Write RS", (-3.5, label_height, 0)),
+        ("Read RS", (3.5, label_height, 0)),
+        ("DRAM", (0, label_height, -5)),
+        ("Read Return", (7, label_height, -5)),
     ]
     for text, pos in labels:
-        create_text_label(text, pos, label_color, scale=0.7)
+        create_text_label(text, pos, label_color, scale=0.8)
     
     # Set up camera
     print("Setting up camera...")
@@ -577,46 +580,49 @@ def create_channel_scene():
     random.seed(42)  # For reproducibility
     
     # Base waypoints for read transactions
-    def make_read_waypoints(x_offset=0):
+    # Y varies to place balls at different heights inside 3D boxes
+    def make_read_waypoints(x_offset=0, y_level=1.5):
         return [
-            (3 + x_offset, 1.5, 8),     # Start (entering from top)
-            (2.5 + x_offset, 1.5, 0),   # Read RS
-            (2 + x_offset, 1.5, -4),    # DRAM
-            (6, 1.5, -4),               # Read Return
-            (6, 1.5, 8),                # Exit (upward, back out the channel boundary)
+            (4 + x_offset, 4, 10),           # Start (entering from above/front)
+            (3.5 + x_offset, y_level, 0),    # Inside Read RS box
+            (1 + x_offset, y_level, -5),     # Inside DRAM box
+            (7, y_level, -5),                # Inside Read Return box
+            (7, 4, 10),                      # Exit (upward, out of channel)
         ]
     
     # Base waypoints for write transactions
-    def make_write_waypoints(x_offset=0):
+    def make_write_waypoints(x_offset=0, y_level=1.5):
         return [
-            (-1 + x_offset, 1.5, 8),    # Start (entering)
-            (0 + x_offset, 1.5, 3),     # WCache
-            (-2.5 + x_offset, 1.5, 0),  # Write RS
-            (-1 + x_offset, 1.5, -4),   # DRAM
+            (-1 + x_offset, 4, 10),          # Start (entering from above/front)
+            (0 + x_offset, y_level, 4),      # Inside WCache box
+            (-3.5 + x_offset, y_level, 0),   # Inside Write RS box
+            (-1 + x_offset, y_level, -5),    # Inside DRAM box
         ]
     
-    # Create multiple read transactions
-    for i in range(4):
-        x_off = random.uniform(-0.5, 0.5)
-        waypoints = make_read_waypoints(x_off)
+    # Create multiple read transactions at different Y levels (stacked in boxes)
+    for i in range(6):
+        x_off = random.uniform(-0.8, 0.8)
+        y_level = 0.8 + (i % 3) * 0.7  # Stack at different heights: 0.8, 1.5, 2.2
+        waypoints = make_read_waypoints(x_off, y_level)
         # Random wait times at each stop (0-45 frames = 0-1.5 seconds)
-        wait_times = [0, random.randint(10, 45), random.randint(15, 50), random.randint(10, 35), 0]
-        start = 1 + i * 40  # Stagger start times
+        wait_times = [0, random.randint(15, 50), random.randint(20, 60), random.randint(15, 40), 0]
+        start = 1 + i * 35  # Stagger start times
         tx = create_transaction_sphere(f"ReadTx_{i:03d}", "transaction_read", waypoints[0])
         animate_transaction(tx, waypoints, start_frame=start, wait_times=wait_times)
     
-    # Create multiple write transactions
-    for i in range(4):
-        x_off = random.uniform(-0.5, 0.5)
-        waypoints = make_write_waypoints(x_off)
+    # Create multiple write transactions at different Y levels
+    for i in range(6):
+        x_off = random.uniform(-0.8, 0.8)
+        y_level = 0.8 + (i % 3) * 0.7  # Stack at different heights
+        waypoints = make_write_waypoints(x_off, y_level)
         # Random wait times at each stop
-        wait_times = [0, random.randint(15, 50), random.randint(10, 40), random.randint(20, 60)]
-        start = 20 + i * 45  # Stagger start times
+        wait_times = [0, random.randint(20, 55), random.randint(15, 45), random.randint(25, 70)]
+        start = 15 + i * 40  # Stagger start times
         tx = create_transaction_sphere(f"WriteTx_{i:03d}", "transaction_write", waypoints[0])
         animate_transaction(tx, waypoints, start_frame=start, wait_times=wait_times)
     
     # Extend animation length to accommodate all transactions
-    bpy.context.scene.frame_end = 350
+    bpy.context.scene.frame_end = 450
     
     print("=" * 50)
     print("Scene created successfully!")
