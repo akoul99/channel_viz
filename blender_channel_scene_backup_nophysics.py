@@ -1,12 +1,9 @@
 """
-Memory Channel Visualizer - Hybrid Physics
-===========================================
+Memory Channel Visualizer - Simple 2D Schematic
+================================================
 
-Clean 2D top-down view with HYBRID animation:
-- Keyframes for travel BETWEEN units
-- Rigid body physics INSIDE units (balls bounce/roll)
-
-To revert to pure keyframes, use: blender_channel_scene_backup_nophysics.py
+Clean 2D top-down view with animated transactions.
+NO physics - just simple keyframe animation.
 
 Layout matches original schematic:
     
@@ -81,24 +78,8 @@ STRUCTURES = {
 
 
 # ============================================================================
-# PHYSICS CONFIGURATION
-# Toggle this to easily disable physics and revert to pure keyframes
-# ============================================================================
-USE_PHYSICS = True
-FRAMES_IN_UNIT = 80   # Longer time in units for physics to settle
-FRAMES_TRAVEL = 15    # Fast travel between units
-
-# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
-
-def setup_physics_world():
-    """Initialize rigid body world for physics simulation."""
-    scene = bpy.context.scene
-    if scene.rigidbody_world is None:
-        bpy.ops.rigidbody.world_add()
-    scene.rigidbody_world.point_cache.frame_end = 600
-
 
 def clear_scene():
     """Remove everything from scene."""
@@ -168,16 +149,6 @@ def create_box(name, pos, size, color_name):
     fill_mat = create_material(f"mat_{name}_fill", color, emission=1.0, transparent=True)
     fill_box.data.materials.append(fill_mat)
     
-    # Add rigid body for collision (passive = balls bounce off it)
-    if USE_PHYSICS:
-        try:
-            bpy.ops.rigidbody.object_add(type='PASSIVE')
-            fill_box.rigid_body.collision_shape = 'BOX'
-            fill_box.rigid_body.friction = 0.5
-            fill_box.rigid_body.restitution = 0.3  # Some bounce
-        except:
-            pass  # Skip if physics not available
-    
     # 2. Create glowing wireframe edges
     corners = [
         (px-hx, py-hy, pz-hz), (px+hx, py-hy, pz-hz),
@@ -245,8 +216,8 @@ def create_label(text, pos):
 
 
 def create_ball(name, color_name, pos):
-    """Create a transaction ball with optional physics."""
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.35, location=pos)
+    """Create a transaction ball."""
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.4, location=pos)
     obj = bpy.context.active_object
     obj.name = name
     bpy.ops.object.shade_smooth()
@@ -255,86 +226,11 @@ def create_ball(name, color_name, pos):
     mat = create_material(f"mat_{name}", color, emission=8.0)
     obj.data.materials.append(mat)
     
-    # Add rigid body for physics
-    if USE_PHYSICS:
-        try:
-            bpy.ops.rigidbody.object_add(type='ACTIVE')
-            obj.rigid_body.collision_shape = 'SPHERE'
-            obj.rigid_body.mass = 1.0
-            obj.rigid_body.friction = 0.5
-            obj.rigid_body.restitution = 0.6   # Bouncy
-            obj.rigid_body.linear_damping = 0.3
-            obj.rigid_body.angular_damping = 0.3
-            # Start with animated=True (follows keyframes)
-            obj.rigid_body.kinematic = True
-        except:
-            pass
-    
     return obj
 
 
-def animate_ball_hybrid(ball, waypoints, start_frame):
-    """
-    Hybrid animation: keyframes between units, physics inside units.
-    
-    waypoints: list of (position, is_unit) tuples
-               is_unit=True means stay here for physics, False means just pass through
-    """
-    frame = start_frame
-    
-    for i, (pos, is_unit) in enumerate(waypoints):
-        # Move to this position (keyframed)
-        ball.location = pos
-        ball.keyframe_insert(data_path="location", frame=frame)
-        
-        if USE_PHYSICS and ball.rigid_body:
-            if is_unit:
-                # Arriving at unit - stay kinematic for a moment then release
-                ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                
-                # After a few frames, release to physics
-                frame += 3
-                ball.rigid_body.kinematic = False
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                
-                # Wait for physics to settle
-                frame += FRAMES_IN_UNIT
-                
-                # Before leaving, capture position and go back to kinematic
-                ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                ball.keyframe_insert(data_path="location", frame=frame)
-            else:
-                # Just traveling - stay kinematic
-                ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                frame += FRAMES_TRAVEL
-        else:
-            # No physics - just use fixed timing
-            if is_unit:
-                frame += FRAMES_IN_UNIT
-            else:
-                frame += FRAMES_TRAVEL
-    
-    # Smooth interpolation for location keyframes
-    try:
-        if ball.animation_data and ball.animation_data.action:
-            fcurves = getattr(ball.animation_data.action, 'fcurves', None)
-            if fcurves:
-                for fc in fcurves:
-                    if 'location' in fc.data_path:
-                        for kf in fc.keyframe_points:
-                            kf.interpolation = 'BEZIER'
-                    elif 'kinematic' in fc.data_path:
-                        for kf in fc.keyframe_points:
-                            kf.interpolation = 'CONSTANT'
-    except:
-        pass
-
-
 def animate_ball(ball, waypoints, start_frame, frames_per_stop=30):
-    """Simple keyframe animation (used when USE_PHYSICS=False)."""
+    """Animate a ball along waypoints with simple keyframes."""
     frame = start_frame
     
     for pos in waypoints:
@@ -342,6 +238,7 @@ def animate_ball(ball, waypoints, start_frame, frames_per_stop=30):
         ball.keyframe_insert(data_path="location", frame=frame)
         frame += frames_per_stop
     
+    # Smooth interpolation (with version compatibility)
     try:
         if ball.animation_data and ball.animation_data.action:
             fcurves = getattr(ball.animation_data.action, 'fcurves', None)
@@ -350,7 +247,7 @@ def animate_ball(ball, waypoints, start_frame, frames_per_stop=30):
                     for kf in fc.keyframe_points:
                         kf.interpolation = 'BEZIER'
     except:
-        pass
+        pass  # Skip if not supported
 
 
 def setup_camera():
@@ -386,113 +283,85 @@ def setup_world():
 # ============================================================================
 
 def create_scene():
-    print("Creating Hybrid Physics Scene...")
-    print(f"USE_PHYSICS = {USE_PHYSICS}")
+    print("Creating 2D Schematic...")
     
     clear_scene()
     setup_world()
     setup_camera()
     setup_lighting()
     
-    # Set up physics world
-    if USE_PHYSICS:
-        setup_physics_world()
-    
-    # Create all structure boxes (these become collision objects)
+    # Create all structure boxes
     print("Creating structures...")
     for name, cfg in STRUCTURES.items():
         create_box(name, cfg['pos'], cfg['size'], cfg['color'])
+        # Label ON TOP of box (higher Y so visible from top-down camera)
         label_pos = (cfg['pos'][0], cfg['pos'][1] + 0.6, cfg['pos'][2])
         create_label(cfg['label'], label_pos)
     
     # Create animated transactions
     print("Creating transactions...")
     
-    # Unit center positions (balls drop slightly into top of box)
+    # Unit center positions
     wcache_center = (0, 0.5, 6)
     write_rs_center = (-4, 0.5, 2)
     read_rs_center = (4, 0.5, 2)
     dram_center = (0, 0.5, -3)
     read_return_center = (8, 0.5, -3)
     
+    # Offset positions within units (so balls don't overlap)
+    # Returns position offset for ball index i within a unit
     def get_slot_offset(slot_index, max_slots=4):
-        """Get X,Z offset for ball slot - spread balls out in units."""
-        offsets = [(-0.7, 0.3), (-0.2, 0.3), (0.3, 0.3), (0.8, 0.3),
-                   (-0.7, -0.3), (-0.2, -0.3), (0.3, -0.3), (0.8, -0.3)]
-        return offsets[slot_index % len(offsets)]
+        """Get X offset for a ball slot within a unit."""
+        offsets = [-0.9, -0.3, 0.3, 0.9]  # 4 slots side by side
+        return offsets[slot_index % max_slots]
     
     # WRITE transactions (6 balls)
     # Path: Enter -> WCache -> Write RS -> DRAM
-    # Waypoints: (position, is_unit) - is_unit=True means physics happens here
     num_writes = 6
     for i in range(num_writes):
-        x_off, z_off = get_slot_offset(i)
+        # Each ball gets its own slot offset
+        x_off = get_slot_offset(i % 4)
         
-        if USE_PHYSICS:
-            waypoints = [
-                ((0 + x_off, 0.5, 12), False),                                     # Enter
-                ((wcache_center[0] + x_off, 0.5, wcache_center[2] + z_off), True), # WCache - physics
-                ((write_rs_center[0] + x_off, 0.5, write_rs_center[2] + z_off), True), # Write RS - physics
-                ((dram_center[0] - 1.5 + x_off, 0.5, dram_center[2] + z_off), True),  # DRAM - physics
-            ]
-            ball = create_ball(f"write_{i}", "write_ball", waypoints[0][0])
-            start = 1 + i * 40  # More stagger for physics to work
-            animate_ball_hybrid(ball, waypoints, start_frame=start)
-        else:
-            waypoints = [
-                (0 + x_off, 0.5, 12),
-                (wcache_center[0] + x_off, 0.5, wcache_center[2]),
-                (write_rs_center[0] + x_off, 0.5, write_rs_center[2]),
-                (dram_center[0] - 1.5 + x_off, 0.5, dram_center[2]),
-            ]
-            ball = create_ball(f"write_{i}", "write_ball", waypoints[0])
-            start = 1 + i * 25
-            animate_ball(ball, waypoints, start_frame=start, frames_per_stop=40)
+        waypoints = [
+            (0 + x_off, 0.5, 12),                          # Enter
+            (wcache_center[0] + x_off, 0.5, wcache_center[2]),     # WCache
+            (write_rs_center[0] + x_off, 0.5, write_rs_center[2]), # Write RS
+            (dram_center[0] - 1.5 + x_off, 0.5, dram_center[2]),   # DRAM (left side)
+        ]
+        
+        ball = create_ball(f"write_{i}", "write_ball", waypoints[0])
+        # Stagger starts, longer wait times so balls accumulate
+        start = 1 + i * 25
+        animate_ball(ball, waypoints, start_frame=start, frames_per_stop=40)
     
     # READ transactions (6 balls)
     # Path: Enter -> Read RS -> DRAM -> Read Return -> Exit
     num_reads = 6
     for i in range(num_reads):
-        x_off, z_off = get_slot_offset(i)
+        x_off = get_slot_offset(i % 4)
         
-        if USE_PHYSICS:
-            waypoints = [
-                ((4 + x_off, 0.5, 12), False),                                     # Enter
-                ((read_rs_center[0] + x_off, 0.5, read_rs_center[2] + z_off), True),  # Read RS - physics
-                ((dram_center[0] + 1.5 + x_off, 0.5, dram_center[2] + z_off), True),  # DRAM - physics
-                ((read_return_center[0] + x_off, 0.5, read_return_center[2] + z_off), True), # Read Return - physics
-                ((read_return_center[0] + x_off, 0.5, 12), False),                 # Exit
-            ]
-            ball = create_ball(f"read_{i}", "read_ball", waypoints[0][0])
-            start = 10 + i * 50
-            animate_ball_hybrid(ball, waypoints, start_frame=start)
-        else:
-            waypoints = [
-                (4 + x_off, 0.5, 12),
-                (read_rs_center[0] + x_off, 0.5, read_rs_center[2]),
-                (dram_center[0] + 1.5 + x_off, 0.5, dram_center[2]),
-                (read_return_center[0] + x_off, 0.5, read_return_center[2]),
-                (read_return_center[0] + x_off, 0.5, 12),
-            ]
-            ball = create_ball(f"read_{i}", "read_ball", waypoints[0])
-            start = 10 + i * 30
-            animate_ball(ball, waypoints, start_frame=start, frames_per_stop=45)
+        waypoints = [
+            (4 + x_off, 0.5, 12),                          # Enter
+            (read_rs_center[0] + x_off, 0.5, read_rs_center[2]),   # Read RS
+            (dram_center[0] + 1.5 + x_off, 0.5, dram_center[2]),   # DRAM (right side)
+            (read_return_center[0] + x_off, 0.5, read_return_center[2]), # Read Return
+            (read_return_center[0] + x_off, 0.5, 12),      # Exit
+        ]
+        
+        ball = create_ball(f"read_{i}", "read_ball", waypoints[0])
+        start = 10 + i * 30
+        animate_ball(ball, waypoints, start_frame=start, frames_per_stop=45)
     
     # Render settings
     bpy.context.scene.render.engine = 'BLENDER_EEVEE'
-    bpy.context.scene.frame_end = 600
+    bpy.context.scene.frame_end = 450
     
     print("=" * 50)
-    if USE_PHYSICS:
-        print("HYBRID PHYSICS MODE")
-        print("- Balls travel via keyframes between units")
-        print("- Inside units: physics kicks in (bounce/roll)")
-        print("")
-        print("To disable physics, set USE_PHYSICS = False at top of script")
-    else:
-        print("PURE KEYFRAME MODE (no physics)")
+    print("Done! 12 transactions created (6 writes, 6 reads)")
     print("")
-    print("12 transactions created (6 writes, 6 reads)")
+    print("Balls are offset within each unit so you can count them!")
+    print("Watch units fill up as balls arrive and wait.")
+    print("")
     print("Press SPACEBAR to play.")
 
 
