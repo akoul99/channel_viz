@@ -84,7 +84,7 @@ STRUCTURES = {
 # PHYSICS CONFIGURATION
 # Toggle this to easily disable physics and revert to pure keyframes
 # ============================================================================
-USE_PHYSICS = True
+USE_PHYSICS = False  # Disabled - hybrid physics was buggy
 FRAMES_IN_UNIT = 80   # Longer time in units for physics to settle
 FRAMES_TRAVEL = 15    # Fast travel between units
 
@@ -408,13 +408,38 @@ def animate_ball_hybrid(ball, waypoints, start_frame):
         pass
 
 
-def animate_ball(ball, waypoints, start_frame, frames_per_stop=30):
-    """Simple keyframe animation (used when USE_PHYSICS=False)."""
+def animate_ball(ball, waypoints, start_frame, frames_per_stop=30, add_bounce=True):
+    """
+    Simple keyframe animation with optional bounce effect.
+    
+    add_bounce: if True, adds a small settling bounce when arriving at each stop
+    """
     frame = start_frame
     
-    for pos in waypoints:
+    for i, pos in enumerate(waypoints):
+        # Arrive at position
         ball.location = pos
         ball.keyframe_insert(data_path="location", frame=frame)
+        
+        # Add bounce effect (except for first and last waypoint)
+        if add_bounce and i > 0 and i < len(waypoints) - 1:
+            # Small bounce up
+            bounce_height = 0.3
+            ball.location = (pos[0], pos[1], pos[2] + bounce_height)
+            ball.keyframe_insert(data_path="location", frame=frame + 4)
+            
+            # Settle back down
+            ball.location = pos
+            ball.keyframe_insert(data_path="location", frame=frame + 8)
+            
+            # Tiny secondary bounce
+            ball.location = (pos[0], pos[1], pos[2] + bounce_height * 0.3)
+            ball.keyframe_insert(data_path="location", frame=frame + 11)
+            
+            # Final settle
+            ball.location = pos
+            ball.keyframe_insert(data_path="location", frame=frame + 14)
+        
         frame += frames_per_stop
     
     try:
