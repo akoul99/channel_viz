@@ -260,13 +260,16 @@ def create_ball(name, color_name, pos):
         try:
             bpy.ops.rigidbody.object_add(type='ACTIVE')
             obj.rigid_body.collision_shape = 'SPHERE'
-            obj.rigid_body.mass = 1.0
-            obj.rigid_body.friction = 0.5
-            obj.rigid_body.restitution = 0.6   # Bouncy
-            obj.rigid_body.linear_damping = 0.3
-            obj.rigid_body.angular_damping = 0.3
-            # Start with animated=True (follows keyframes)
+            obj.rigid_body.mass = 0.5
+            obj.rigid_body.friction = 0.8
+            obj.rigid_body.restitution = 0.4   # Moderate bounce
+            obj.rigid_body.linear_damping = 0.5  # Settle quickly
+            obj.rigid_body.angular_damping = 0.5
+            obj.rigid_body.collision_margin = 0.04
+            # CRITICAL: Start kinematic so it follows keyframes initially
             obj.rigid_body.kinematic = True
+            # Set initial keyframe to ensure kinematic from frame 1
+            obj.keyframe_insert(data_path="rigid_body.kinematic", frame=1)
         except:
             pass
     
@@ -275,49 +278,53 @@ def create_ball(name, color_name, pos):
 
 def animate_ball_hybrid(ball, waypoints, start_frame):
     """
-    Hybrid animation: keyframes between units, physics inside units.
+    Hybrid animation: keyframes for ALL movement, physics only inside units.
     
     waypoints: list of (position, is_unit) tuples
-               is_unit=True means stay here for physics, False means just pass through
+               is_unit=True means enable physics briefly for bouncing
     """
     frame = start_frame
     
-    for i, (pos, is_unit) in enumerate(waypoints):
-        # Move to this position (keyframed)
-        ball.location = pos
-        ball.keyframe_insert(data_path="location", frame=frame)
-        
-        if USE_PHYSICS and ball.rigid_body:
-            if is_unit:
-                # Arriving at unit - stay kinematic for a moment then release
-                ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                
-                # After a few frames, release to physics
-                frame += 3
-                ball.rigid_body.kinematic = False
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                
-                # Wait for physics to settle
-                frame += FRAMES_IN_UNIT
-                
-                # Before leaving, capture position and go back to kinematic
-                ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                ball.keyframe_insert(data_path="location", frame=frame)
-            else:
-                # Just traveling - stay kinematic
-                ball.rigid_body.kinematic = True
-                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=frame)
-                frame += FRAMES_TRAVEL
-        else:
-            # No physics - just use fixed timing
-            if is_unit:
-                frame += FRAMES_IN_UNIT
-            else:
-                frame += FRAMES_TRAVEL
+    # First pass: set ALL location keyframes for the complete path
+    # This ensures the ball always has a defined position
+    keyframe_times = []
     
-    # Smooth interpolation for location keyframes
+    for i, (pos, is_unit) in enumerate(waypoints):
+        keyframe_times.append((frame, pos, is_unit))
+        
+        if is_unit:
+            frame += FRAMES_IN_UNIT  # Long pause in unit
+        else:
+            frame += FRAMES_TRAVEL   # Quick travel
+    
+    # Set all location keyframes first (ball always knows where to be)
+    for f, pos, _ in keyframe_times:
+        ball.location = pos
+        ball.keyframe_insert(data_path="location", frame=f)
+    
+    # Second pass: set kinematic keyframes (when to enable physics)
+    if USE_PHYSICS and ball.rigid_body:
+        for i, (f, pos, is_unit) in enumerate(keyframe_times):
+            if is_unit:
+                # Arrive at unit - kinematic ON (follow keyframe to exact position)
+                ball.rigid_body.kinematic = True
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=f)
+                
+                # After settling in position, enable physics for 30 frames
+                physics_start = f + 5
+                ball.rigid_body.kinematic = False
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=physics_start)
+                
+                # Before leaving, disable physics so keyframes take over again
+                physics_end = f + FRAMES_IN_UNIT - 10
+                ball.rigid_body.kinematic = True
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=physics_end)
+            else:
+                # Traveling - always kinematic (pure keyframe)
+                ball.rigid_body.kinematic = True
+                ball.keyframe_insert(data_path="rigid_body.kinematic", frame=f)
+    
+    # Smooth interpolation for location, constant for kinematic switches
     try:
         if ball.animation_data and ball.animation_data.action:
             fcurves = getattr(ball.animation_data.action, 'fcurves', None)
