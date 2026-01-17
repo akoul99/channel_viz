@@ -91,25 +91,46 @@ def clear_scene():
         bpy.data.meshes.remove(mesh)
 
 
-def create_material(name, color, emission=2.0):
-    """Create a glowing material."""
+def create_material(name, color, emission=2.0, transparent=False):
+    """Create a glowing material, optionally transparent."""
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
+    
+    if transparent:
+        mat.blend_method = 'BLEND'
+        mat.shadow_method = 'NONE'
+    
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
     nodes.clear()
     
     output = nodes.new('ShaderNodeOutputMaterial')
-    emission_node = nodes.new('ShaderNodeEmission')
-    emission_node.inputs['Color'].default_value = color
-    emission_node.inputs['Strength'].default_value = emission
-    links.new(emission_node.outputs['Emission'], output.inputs['Surface'])
+    
+    if transparent:
+        # Mix emission with transparent for see-through effect
+        mix = nodes.new('ShaderNodeMixShader')
+        mix.inputs[0].default_value = 0.7  # 70% transparent
+        
+        emission_node = nodes.new('ShaderNodeEmission')
+        emission_node.inputs['Color'].default_value = color
+        emission_node.inputs['Strength'].default_value = emission
+        
+        transparent_node = nodes.new('ShaderNodeBsdfTransparent')
+        
+        links.new(transparent_node.outputs['BSDF'], mix.inputs[1])
+        links.new(emission_node.outputs['Emission'], mix.inputs[2])
+        links.new(mix.outputs['Shader'], output.inputs['Surface'])
+    else:
+        emission_node = nodes.new('ShaderNodeEmission')
+        emission_node.inputs['Color'].default_value = color
+        emission_node.inputs['Strength'].default_value = emission
+        links.new(emission_node.outputs['Emission'], output.inputs['Surface'])
     
     return mat
 
 
 def create_box(name, pos, size, color_name):
-    """Create a simple box."""
+    """Create a transparent box (can see balls inside)."""
     bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
     obj = bpy.context.active_object
     obj.name = name
@@ -117,7 +138,8 @@ def create_box(name, pos, size, color_name):
     bpy.ops.object.transform_apply(scale=True)
     
     color = COLORS[color_name]
-    mat = create_material(f"mat_{name}", color, emission=3.0)
+    # Transparent so we can see balls inside
+    mat = create_material(f"mat_{name}", color, emission=2.0, transparent=True)
     obj.data.materials.append(mat)
     
     return obj
@@ -131,8 +153,8 @@ def create_label(text, pos):
     obj.data.size = 0.5
     obj.data.align_x = 'CENTER'
     obj.data.align_y = 'CENTER'
-    # Rotate to lie flat on XZ plane, readable from above (camera at +Y)
-    obj.rotation_euler = (math.radians(-90), 0, 0)
+    # Lie flat, rotated to read correctly from camera at +Y looking down
+    obj.rotation_euler = (math.radians(-90), math.radians(180), 0)
     
     mat = create_material(f"mat_label_{text}", (1, 1, 0.9, 1), emission=10.0)
     obj.data.materials.append(mat)
