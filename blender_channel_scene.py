@@ -219,42 +219,68 @@ def create_scene():
     # Create animated transactions
     print("Creating transactions...")
     
-    # WRITE PATH: Enter -> WCache -> Write RS -> DRAM
-    write_waypoints = [
-        (0, 0.5, 10),       # Enter from top
-        (0, 0.5, 6),        # WCache
-        (-4, 0.5, 2),       # Write RS
-        (0, 0.5, -3),       # DRAM
-    ]
-    for i in range(3):
-        ball = create_ball(f"write_{i}", "write_ball", write_waypoints[0])
-        animate_ball(ball, write_waypoints, start_frame=1 + i*40, frames_per_stop=25)
+    # Unit center positions
+    wcache_center = (0, 0.5, 6)
+    write_rs_center = (-4, 0.5, 2)
+    read_rs_center = (4, 0.5, 2)
+    dram_center = (0, 0.5, -3)
+    read_return_center = (8, 0.5, -3)
     
-    # READ PATH: Enter -> Read RS -> DRAM -> Read Return -> Exit
-    read_waypoints = [
-        (4, 0.5, 10),       # Enter from top-right
-        (4, 0.5, 2),        # Read RS
-        (0, 0.5, -3),       # DRAM
-        (8, 0.5, -3),       # Read Return
-        (8, 0.5, 10),       # Exit upward
-    ]
-    for i in range(3):
-        ball = create_ball(f"read_{i}", "read_ball", read_waypoints[0])
-        animate_ball(ball, read_waypoints, start_frame=20 + i*50, frames_per_stop=25)
+    # Offset positions within units (so balls don't overlap)
+    # Returns position offset for ball index i within a unit
+    def get_slot_offset(slot_index, max_slots=4):
+        """Get X offset for a ball slot within a unit."""
+        offsets = [-0.9, -0.3, 0.3, 0.9]  # 4 slots side by side
+        return offsets[slot_index % max_slots]
+    
+    # WRITE transactions (6 balls)
+    # Path: Enter -> WCache -> Write RS -> DRAM
+    num_writes = 6
+    for i in range(num_writes):
+        # Each ball gets its own slot offset
+        x_off = get_slot_offset(i % 4)
+        
+        waypoints = [
+            (0 + x_off, 0.5, 12),                          # Enter
+            (wcache_center[0] + x_off, 0.5, wcache_center[2]),     # WCache
+            (write_rs_center[0] + x_off, 0.5, write_rs_center[2]), # Write RS
+            (dram_center[0] - 1.5 + x_off, 0.5, dram_center[2]),   # DRAM (left side)
+        ]
+        
+        ball = create_ball(f"write_{i}", "write_ball", waypoints[0])
+        # Stagger starts, longer wait times so balls accumulate
+        start = 1 + i * 25
+        animate_ball(ball, waypoints, start_frame=start, frames_per_stop=40)
+    
+    # READ transactions (6 balls)
+    # Path: Enter -> Read RS -> DRAM -> Read Return -> Exit
+    num_reads = 6
+    for i in range(num_reads):
+        x_off = get_slot_offset(i % 4)
+        
+        waypoints = [
+            (4 + x_off, 0.5, 12),                          # Enter
+            (read_rs_center[0] + x_off, 0.5, read_rs_center[2]),   # Read RS
+            (dram_center[0] + 1.5 + x_off, 0.5, dram_center[2]),   # DRAM (right side)
+            (read_return_center[0] + x_off, 0.5, read_return_center[2]), # Read Return
+            (read_return_center[0] + x_off, 0.5, 12),      # Exit
+        ]
+        
+        ball = create_ball(f"read_{i}", "read_ball", waypoints[0])
+        start = 10 + i * 30
+        animate_ball(ball, waypoints, start_frame=start, frames_per_stop=45)
     
     # Render settings
     bpy.context.scene.render.engine = 'BLENDER_EEVEE'
-    bpy.context.scene.frame_end = 300
+    bpy.context.scene.frame_end = 450
     
     print("=" * 50)
-    print("Done! Press SPACEBAR to play animation.")
+    print("Done! 12 transactions created (6 writes, 6 reads)")
     print("")
-    print("Layout:")
-    print("         [WCache]")
-    print("            |")
-    print("[Write RS]      [Read RS]")
-    print("      \\          /")
-    print("        [DRAM] --> [Read Return]")
+    print("Balls are offset within each unit so you can count them!")
+    print("Watch units fill up as balls arrive and wait.")
+    print("")
+    print("Press SPACEBAR to play.")
 
 
 # Run
