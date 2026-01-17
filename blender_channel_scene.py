@@ -111,7 +111,7 @@ def create_material(name, color, emission=2.0, transparent=False):
     if transparent:
         # Mix emission with transparent for see-through effect
         mix = nodes.new('ShaderNodeMixShader')
-        mix.inputs[0].default_value = 0.7  # 70% transparent
+        mix.inputs[0].default_value = 0.8  # 80% transparent, 20% colored
         
         emission_node = nodes.new('ShaderNodeEmission')
         emission_node.inputs['Color'].default_value = color
@@ -132,17 +132,24 @@ def create_material(name, color, emission=2.0, transparent=False):
 
 
 def create_box(name, pos, size, color_name):
-    """Create a glowing wireframe container - edges only, no faces."""
+    """Create a glowing wireframe container with semi-transparent fill."""
     color = COLORS[color_name]
-    
-    # Create 12 edge beams for the cube wireframe
     sx, sy, sz = size
     px, py, pz = pos
-    
-    # Half sizes for corner positions
     hx, hy, hz = sx/2, sy/2, sz/2
     
-    # Define the 8 corners
+    # 1. Create semi-transparent fill box
+    bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
+    fill_box = bpy.context.active_object
+    fill_box.name = f"{name}_fill"
+    fill_box.scale = (sx * 0.98, sy * 0.98, sz * 0.98)  # Slightly smaller
+    bpy.ops.object.transform_apply(scale=True)
+    
+    # Semi-transparent material (80% transparent)
+    fill_mat = create_material(f"mat_{name}_fill", color, emission=1.0, transparent=True)
+    fill_box.data.materials.append(fill_mat)
+    
+    # 2. Create glowing wireframe edges
     corners = [
         (px-hx, py-hy, pz-hz), (px+hx, py-hy, pz-hz),
         (px+hx, py-hy, pz+hz), (px-hx, py-hy, pz+hz),
@@ -150,30 +157,24 @@ def create_box(name, pos, size, color_name):
         (px+hx, py+hy, pz+hz), (px-hx, py+hy, pz+hz),
     ]
     
-    # Define 12 edges (pairs of corner indices)
     edges = [
         (0,1), (1,2), (2,3), (3,0),  # Bottom
         (4,5), (5,6), (6,7), (7,4),  # Top
         (0,4), (1,5), (2,6), (3,7),  # Verticals
     ]
     
-    # Create thin cylinders for each edge
-    mat = create_material(f"mat_{name}", color, emission=5.0)
+    edge_mat = create_material(f"mat_{name}_edge", color, emission=6.0)
     
     for i, (a, b) in enumerate(edges):
         p1, p2 = corners[a], corners[b]
-        
-        # Midpoint and length
         mid = ((p1[0]+p2[0])/2, (p1[1]+p2[1])/2, (p1[2]+p2[2])/2)
         dx, dy, dz = p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]
         length = (dx**2 + dy**2 + dz**2) ** 0.5
         
-        # Create cylinder
-        bpy.ops.mesh.primitive_cylinder_add(radius=0.05, depth=length, location=mid)
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.06, depth=length, location=mid)
         edge_obj = bpy.context.active_object
         edge_obj.name = f"{name}_edge_{i}"
         
-        # Rotate to align with edge direction
         from mathutils import Vector
         direction = Vector((dx, dy, dz)).normalized()
         up = Vector((0, 0, 1))
@@ -185,16 +186,16 @@ def create_box(name, pos, size, color_name):
         elif direction.z < 0:
             edge_obj.rotation_euler = (math.radians(180), 0, 0)
         
-        edge_obj.data.materials.append(mat)
+        edge_obj.data.materials.append(edge_mat)
     
-    # Add corner spheres for a nicer look
+    # 3. Corner spheres
     for i, corner in enumerate(corners):
-        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.08, location=corner)
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.1, location=corner)
         sphere = bpy.context.active_object
         sphere.name = f"{name}_corner_{i}"
-        sphere.data.materials.append(mat)
+        sphere.data.materials.append(edge_mat)
     
-    return None
+    return fill_box
 
 
 def create_label(text, pos):
